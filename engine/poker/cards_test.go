@@ -1,8 +1,9 @@
 package poker_test
 
 import (
-	"github.com/ljbink/ai-poker/engine/poker"
 	"testing"
+
+	"github.com/ljbink/ai-poker/engine/poker"
 )
 
 func TestCardsLength(t *testing.T) {
