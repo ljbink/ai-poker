@@ -110,42 +110,31 @@ var (
 	containerStyle = lipgloss.NewStyle().
 			Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("63"))
+			BorderForeground(lipgloss.Color("#7C3AED")) // Purple
 
 	// Title style
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("86")).
+			Foreground(lipgloss.Color("#A78BFA")). // Light purple
 			Align(lipgloss.Center).
 			Padding(1, 0)
 
 	// Menu item styles
 	itemStyle = lipgloss.NewStyle().
 			Padding(0, 2).
-			Margin(0, 1)
+			Margin(0, 1).
+			Foreground(lipgloss.Color("#E5E7EB")) // Light gray
 
 	selectedItemStyle = lipgloss.NewStyle().
 				Padding(0, 2).
 				Margin(0, 1).
-				Background(lipgloss.Color("86")).
-				Foreground(lipgloss.Color("230")).
+				Background(lipgloss.Color("#7C3AED")). // Purple background
+				Foreground(lipgloss.Color("#FFFFFF")). // White text
 				Bold(true)
-
-	// Input styles
-	inputStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			Padding(0, 1).
-			Width(30)
-
-	focusedInputStyle = lipgloss.NewStyle().
-				Border(lipgloss.DoubleBorder()).
-				BorderForeground(lipgloss.Color("86")).
-				Padding(0, 1).
-				Width(30)
 
 	// Help text style
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(lipgloss.Color("#9CA3AF")). // Medium gray
 			Margin(1, 0)
 )
 

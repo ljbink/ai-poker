@@ -7,12 +7,11 @@ import (
 
 // UserData represents player information
 type UserData struct {
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	LastSeen  time.Time `json:"last_seen"`
-	// Game stats could be added here later
-	GamesPlayed int `json:"games_played"`
-	GamesWon    int `json:"games_won"`
+	Name        string    `json:"name"`
+	CreatedAt   time.Time `json:"created_at"`
+	LastSeen    time.Time `json:"last_seen"`
+	GamesPlayed int       `json:"games_played"`
+	GamesWon    int       `json:"games_won"`
 }
 
 // SettingsData represents application settings
@@ -21,27 +20,15 @@ type SettingsData struct {
 	SoundEnabled      bool   `json:"sound_enabled"`
 	AnimationsEnabled bool   `json:"animations_enabled"`
 	AutoSave          bool   `json:"auto_save"`
-	// Game-specific settings
-	DefaultBuyIn      int  `json:"default_buy_in"`
-	PreferredSeats    int  `json:"preferred_seats"`
-	ShowProbabilities bool `json:"show_probabilities"`
-}
-
-// GameSessionData represents current game session state
-type GameSessionData struct {
-	SessionID    string    `json:"session_id"`
-	StartTime    time.Time `json:"start_time"`
-	IsActive     bool      `json:"is_active"`
-	CurrentChips int       `json:"current_chips"`
-	// Additional game state could be stored here
+	DefaultBuyIn      int    `json:"default_buy_in"`
+	ShowProbabilities bool   `json:"show_probabilities"`
 }
 
 // Data represents the central data store for the application
 type Data struct {
-	lock        sync.RWMutex
-	user        *UserData
-	settings    *SettingsData
-	gameSession *GameSessionData
+	lock     sync.RWMutex
+	user     *UserData
+	settings *SettingsData
 }
 
 // User Data Methods
@@ -123,7 +110,6 @@ func (d *Data) GetSettings() *SettingsData {
 		AnimationsEnabled: true,
 		AutoSave:          true,
 		DefaultBuyIn:      1000,
-		PreferredSeats:    6,
 		ShowProbabilities: false,
 	}
 }
@@ -156,52 +142,10 @@ func (d *Data) UpdateSetting(key string, value interface{}) {
 		if v, ok := value.(int); ok {
 			d.settings.DefaultBuyIn = v
 		}
-	case "preferred_seats":
-		if v, ok := value.(int); ok {
-			d.settings.PreferredSeats = v
-		}
 	case "show_probabilities":
 		if v, ok := value.(bool); ok {
 			d.settings.ShowProbabilities = v
 		}
-	}
-}
-
-// Game Session Methods
-func (d *Data) StartGameSession(sessionID string, initialChips int) {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-	d.gameSession = &GameSessionData{
-		SessionID:    sessionID,
-		StartTime:    time.Now(),
-		IsActive:     true,
-		CurrentChips: initialChips,
-	}
-}
-
-func (d *Data) EndGameSession() {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-	if d.gameSession != nil {
-		d.gameSession.IsActive = false
-	}
-}
-
-func (d *Data) GetGameSession() *GameSessionData {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-	if d.gameSession != nil {
-		sessionCopy := *d.gameSession
-		return &sessionCopy
-	}
-	return nil
-}
-
-func (d *Data) UpdateChips(chips int) {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-	if d.gameSession != nil && d.gameSession.IsActive {
-		d.gameSession.CurrentChips = chips
 	}
 }
 
@@ -213,7 +157,6 @@ func (d *Data) getDefaultSettings() *SettingsData {
 		AnimationsEnabled: true,
 		AutoSave:          true,
 		DefaultBuyIn:      1000,
-		PreferredSeats:    6,
 		ShowProbabilities: false,
 	}
 }
@@ -224,13 +167,6 @@ func (d *Data) Reset() {
 	defer d.lock.Unlock()
 	d.user = nil
 	d.settings = nil
-	d.gameSession = nil
-}
-
-func (d *Data) IsGameActive() bool {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-	return d.gameSession != nil && d.gameSession.IsActive
 }
 
 // Singleton pattern
