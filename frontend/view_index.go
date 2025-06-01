@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ljbink/ai-poker/frontend/component"
 )
 
 // MenuItem represents a menu item for the list
@@ -53,10 +55,56 @@ func (d menuItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 	fmt.Fprint(w, str+"\n"+desc)
 }
 
+// IndexKeyMap defines keybindings for the index view
+type IndexKeyMap struct {
+	Up     key.Binding
+	Down   key.Binding
+	Select key.Binding
+	Quit   key.Binding
+}
+
+// ShortHelp returns keybindings to be shown in the mini help view.
+func (k IndexKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Up, k.Down, k.Select, k.Quit}
+}
+
+// FullHelp returns keybindings for the expanded help view.
+func (k IndexKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down},
+		{k.Select, k.Quit},
+	}
+}
+
+var indexKeys = IndexKeyMap{
+	Up: key.NewBinding(
+		key.WithKeys("up", "k"),
+		key.WithHelp("↑/k", "move up"),
+	),
+	Down: key.NewBinding(
+		key.WithKeys("down", "j"),
+		key.WithHelp("↓/j", "move down"),
+	),
+	Select: key.NewBinding(
+		key.WithKeys("enter", " "),
+		key.WithHelp("enter/space", "select"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c"),
+		key.WithHelp("q", "quit"),
+	),
+}
+
 // IndexView represents the main menu/welcome screen
 type IndexView struct {
 	model *Model
 	list  list.Model
+	keys  IndexKeyMap
+	help  help.Model
+
+	// Components
+	header *component.HeaderComponent
+	helper *component.HelperComponent
 }
 
 // NewIndexView creates a new index view
@@ -65,7 +113,7 @@ func NewIndexView(model *Model) *IndexView {
 		MenuItem{
 			title:       "🎮 Start Game",
 			description: "Begin a new poker game",
-			action:      ViewInputUserProfile,
+			action:      ViewLogin,
 		},
 		MenuItem{
 			title:       "⚙️  Settings",
@@ -91,21 +139,32 @@ func NewIndexView(model *Model) *IndexView {
 	// Custom styling for the list
 	l.Styles.NoItems = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")) // Gray
 
+	// Create help component with matching SettingsView styling
+	h := help.New()
+	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(lipgloss.Color("#7C3AED"))  // Purple
+	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF")) // Medium gray
+
 	return &IndexView{
 		model: model,
 		list:  l,
+		keys:  indexKeys,
+		help:  h,
+
+		// Initialize components with default width (will be updated in Render)
+		header: component.NewHeaderComponent("🃏 Texas Hold'em Poker", 80),
+		helper: component.NewHelperComponent(indexKeys, 80),
 	}
 }
 
 // Update handles input for the index view
 func (v *IndexView) Update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter", " ":
+	switch {
+	case key.Matches(msg, v.keys.Select):
 		selectedItem, ok := v.list.SelectedItem().(MenuItem)
 		if ok {
 			switch selectedItem.action {
-			case ViewInputUserProfile:
-				v.model.currentView = ViewInputUserProfile
+			case ViewLogin:
+				v.model.currentView = ViewLogin
 			case ViewSettings:
 				v.model.currentView = ViewSettings
 			default: // Quit case
@@ -113,6 +172,8 @@ func (v *IndexView) Update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return v.model, nil
+	case key.Matches(msg, v.keys.Quit):
+		return v.model, tea.Quit
 	}
 
 	var cmd tea.Cmd
@@ -122,37 +183,41 @@ func (v *IndexView) Update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // Render renders the index view
 func (v *IndexView) Render(width, height int) string {
-	// Update list dimensions
-	v.list.SetWidth(width - 4)
-	v.list.SetHeight(15) // Reduced height to accommodate manual title
+	// Update component widths for current screen size
+	v.header.SetWidth(width)
+	v.helper.SetWidth(width)
 
-	// Manual title rendering
-	title := titleStyle.Render("🃏 Texas Hold'em Poker")
+	// Title at the top using header component
+	titleAtTop := v.header.Render()
 
-	// Render list
+	// Help view at the bottom using helper component
+	helpAtBottom := v.helper.Render()
+
+	// Calculate actual space used by header and helper
+	headerHeight := lipgloss.Height(titleAtTop)
+	helperHeight := lipgloss.Height(helpAtBottom)
+	availableHeight := height - headerHeight - helperHeight
+
+	// Update list dimensions to use remaining space
+	v.list.SetWidth(width - 8)
+	v.list.SetHeight(availableHeight - 2) // Small buffer for list margins
+
+	// Render list content for center area
 	listView := v.list.View()
 
-	// Add custom help text
-	helpText := helpStyle.Render(
-		"\n" +
-			"• ↑/↓ or j/k to navigate\n" +
-			"• Enter/Space to select\n" +
-			"• q to quit",
+	// Center the list content in the middle of available space
+	centeredContent := lipgloss.Place(
+		width, availableHeight,
+		lipgloss.Center, lipgloss.Center,
+		listView,
 	)
 
-	// Combine title, list, and help
-	content := title + "\n\n" + listView + helpText
+	// Combine title, content, and help without extra spacing
+	fullContent := titleAtTop + centeredContent + helpAtBottom
 
-	// Center the content
-	if width > 0 {
-		content = lipgloss.Place(
-			width, height,
-			lipgloss.Center, lipgloss.Center,
-			containerStyle.Render(content),
-		)
-	}
-
-	return content
+	// Apply full screen style
+	fullScreenContainer := GetFullScreenStyle(width, height)
+	return fullScreenContainer.Render(fullContent)
 }
 
 // GetType returns the view type
@@ -162,48 +227,10 @@ func (v *IndexView) GetType() ViewType {
 
 // ShortHelp returns keybindings to be shown in the mini help view
 func (v *IndexView) ShortHelp() []key.Binding {
-	return []key.Binding{
-		key.NewBinding(
-			key.WithKeys("up", "k"),
-			key.WithHelp("↑/k", "move up"),
-		),
-		key.NewBinding(
-			key.WithKeys("down", "j"),
-			key.WithHelp("↓/j", "move down"),
-		),
-		key.NewBinding(
-			key.WithKeys("enter", " "),
-			key.WithHelp("enter/space", "select"),
-		),
-		key.NewBinding(
-			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
-		),
-	}
+	return v.keys.ShortHelp()
 }
 
 // FullHelp returns keybindings for the expanded help view
 func (v *IndexView) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{
-			key.NewBinding(
-				key.WithKeys("up", "k"),
-				key.WithHelp("↑/k", "move up"),
-			),
-			key.NewBinding(
-				key.WithKeys("down", "j"),
-				key.WithHelp("↓/j", "move down"),
-			),
-		},
-		{
-			key.NewBinding(
-				key.WithKeys("enter", " "),
-				key.WithHelp("enter/space", "select"),
-			),
-			key.NewBinding(
-				key.WithKeys("q", "ctrl+c"),
-				key.WithHelp("q", "quit"),
-			),
-		},
-	}
+	return v.keys.FullHelp()
 }

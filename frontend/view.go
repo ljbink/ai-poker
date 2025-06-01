@@ -7,8 +7,6 @@ import (
 
 // View represents a screen/view in the application
 type View interface {
-	KeyMap
-
 	// Update handles input messages and returns updated model and commands
 	Update(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
@@ -17,9 +15,10 @@ type View interface {
 
 	// GetType returns the view type for navigation
 	GetType() ViewType
-}
 
-type KeyMap interface {
+	// ShortHelp returns keybindings to be shown in the mini help view
 	ShortHelp() []key.Binding
+
+	// FullHelp returns keybindings for the expanded help view
 	FullHelp() [][]key.Binding
 }

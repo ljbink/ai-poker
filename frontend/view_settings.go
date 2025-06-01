@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ljbink/ai-poker/frontend/component"
 )
 
 // SettingsKeyMap defines keybindings for the settings view
@@ -72,6 +73,10 @@ type SettingsView struct {
 	options  []SettingOption
 	keys     SettingsKeyMap
 	help     help.Model
+
+	// Components
+	header *component.HeaderComponent
+	helper *component.HelperComponent
 }
 
 // SettingOption represents a configurable setting
@@ -94,6 +99,10 @@ func NewSettingsView(model *Model) *SettingsView {
 		selected: 0,
 		keys:     settingsKeys,
 		help:     h,
+
+		// Initialize components with default width (will be updated in Render)
+		header: component.NewHeaderComponent("⚙️  Settings", 80),
+		helper: component.NewHelperComponent(settingsKeys, 80),
 		options: []SettingOption{
 			{
 				Label:       "Theme",
@@ -172,12 +181,11 @@ func (v *SettingsView) Update(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // Render renders the settings view
 func (v *SettingsView) Render(width, height int) string {
-	var b strings.Builder
+	// Update component widths for current screen size
+	v.header.SetWidth(width)
+	v.helper.SetWidth(width)
 
-	// Title
-	title := titleStyle.Render("⚙️  Settings")
-	b.WriteString(title)
-	b.WriteString("\n\n")
+	var b strings.Builder
 
 	// Get current settings
 	settings := GetData().GetSettings()
@@ -242,36 +250,46 @@ func (v *SettingsView) Render(width, height int) string {
 				Bold(true)
 			b.WriteString(selectedStyle.Render("▶ " + line))
 			b.WriteString("\n")
-
-			// Show description for selected item
-			description := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#9CA3AF")). // Medium gray
-				Italic(true).
-				Render("  " + option.Description)
-			b.WriteString(description)
 		} else {
 			b.WriteString(itemStyle.Render("  " + line))
+			b.WriteString("\n")
 		}
+
+		// Show description for selected item
+		description := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9CA3AF")). // Medium gray
+			Italic(true).
+			Render("  " + option.Description)
+		b.WriteString(description)
+		b.WriteString("\n")
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\n")
+	// Title at the top using header component
+	titleAtTop := v.header.Render()
 
-	// Help view
-	helpView := v.help.View(v.keys)
-	b.WriteString(helpView)
+	// Help view at the bottom using helper component
+	helpAtBottom := v.helper.Render()
 
-	// Center the content
+	// Calculate actual space used by header and helper
+	headerHeight := lipgloss.Height(titleAtTop)
+	helperHeight := lipgloss.Height(helpAtBottom)
+	availableHeight := height - headerHeight - helperHeight
+
+	// Center the settings content in the middle of available space
 	content := b.String()
-	if width > 0 {
-		content = lipgloss.Place(
-			width, height,
-			lipgloss.Center, lipgloss.Center,
-			containerStyle.Render(content),
-		)
-	}
+	centeredContent := lipgloss.Place(
+		width, availableHeight,
+		lipgloss.Center, lipgloss.Center,
+		content,
+	)
 
-	return content
+	// Combine title, content, and help without extra spacing
+	fullContent := titleAtTop + centeredContent + helpAtBottom
+
+	// Apply full screen style
+	fullScreenContainer := GetFullScreenStyle(width, height)
+	return fullScreenContainer.Render(fullContent)
 }
 
 // GetType returns the view type

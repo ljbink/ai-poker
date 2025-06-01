@@ -10,17 +10,20 @@ type ViewType int
 
 const (
 	ViewIndex ViewType = iota
-	ViewInputUserProfile
+	ViewLogin
+	ViewGameSetup
 	ViewSettings
 	ViewGame
 )
 
 // Model represents the main application state
 type Model struct {
-	currentView          ViewType
-	indexView            View
-	inputUserProfileView View
-	settingsView         View
+	currentView   ViewType
+	indexView     View
+	loginView     View
+	gameSetupView View
+	settingsView  View
+	gameView      View
 
 	width  int
 	height int
@@ -34,8 +37,10 @@ func NewModel() *Model {
 
 	// Initialize views with the model reference
 	model.indexView = NewIndexView(model)
-	model.inputUserProfileView = NewUserProfileView(model)
+	model.loginView = NewLoginView(model)
+	model.gameSetupView = NewGameSetupView(model)
 	model.settingsView = NewSettingsView(model)
+	model.gameView = NewGameView(model)
 
 	return model
 }
@@ -68,12 +73,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.currentView {
 		case ViewIndex:
 			return m.indexView.Update(msg)
-		case ViewInputUserProfile:
-			return m.inputUserProfileView.Update(msg)
+		case ViewLogin:
+			return m.loginView.Update(msg)
+		case ViewGameSetup:
+			return m.gameSetupView.Update(msg)
 		case ViewSettings:
 			return m.settingsView.Update(msg)
 		case ViewGame:
-			return m.updateGameView(msg)
+			return m.gameView.Update(msg)
 		}
 	}
 
@@ -85,12 +92,14 @@ func (m *Model) View() string {
 	switch m.currentView {
 	case ViewIndex:
 		return m.indexView.Render(m.width, m.height)
-	case ViewInputUserProfile:
-		return m.inputUserProfileView.Render(m.width, m.height)
+	case ViewLogin:
+		return m.loginView.Render(m.width, m.height)
+	case ViewGameSetup:
+		return m.gameSetupView.Render(m.width, m.height)
 	case ViewSettings:
 		return m.settingsView.Render(m.width, m.height)
 	case ViewGame:
-		return m.renderGameView()
+		return m.gameView.Render(m.width, m.height)
 	default:
 		return "Unknown view"
 	}
@@ -106,64 +115,19 @@ func RunTUI() error {
 
 // Common styles
 var (
-	// Main container style
-	containerStyle = lipgloss.NewStyle().
-			Padding(1, 2).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7C3AED")) // Purple
-
-	// Title style
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#A78BFA")). // Light purple
-			Align(lipgloss.Center).
-			Padding(1, 0)
-
 	// Menu item styles
 	itemStyle = lipgloss.NewStyle().
-			Padding(0, 2).
-			Margin(0, 1).
 			Foreground(lipgloss.Color("#E5E7EB")) // Light gray
 
 	selectedItemStyle = lipgloss.NewStyle().
-				Padding(0, 2).
-				Margin(0, 1).
 				Background(lipgloss.Color("#7C3AED")). // Purple background
 				Foreground(lipgloss.Color("#FFFFFF")). // White text
 				Bold(true)
-
-	// Help text style
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9CA3AF")). // Medium gray
-			Margin(1, 0)
 )
 
-// updateGameView handles updates for the game screen (placeholder for now)
-func (m *Model) updateGameView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		// Go back to index for now
-		m.currentView = ViewIndex
-	}
-	return m, nil
-}
-
-// renderGameView renders the game screen (placeholder for now)
-func (m *Model) renderGameView() string {
-	content := containerStyle.Render(
-		titleStyle.Render("🎮 Game View") + "\n\n" +
-			"Welcome, " + m.GetPlayerName() + "!\n\n" +
-			"Game logic will be implemented here.\n\n" +
-			helpStyle.Render("Press Esc to go back to main menu, q to quit"),
-	)
-
-	if m.width > 0 {
-		content = lipgloss.Place(
-			m.width, m.height,
-			lipgloss.Center, lipgloss.Center,
-			content,
-		)
-	}
-
-	return content
+// GetFullScreenStyle returns a style configured for the given dimensions
+func GetFullScreenStyle(width, height int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height)
 }

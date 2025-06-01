@@ -143,168 +143,6 @@ func (g *Game) setFirstPlayerToAct() {
 	}
 }
 
-// Player Actions
-
-// Call - current player calls
-func (g *Game) Call() bool {
-	player := g.GetCurrentPlayer()
-	callAmount := g.CurrentBet - player.GetBet()
-
-	if callAmount > 0 {
-		actualAmount := min(callAmount, player.GetChips())
-		player.Bet(actualAmount)
-		g.Pot += actualAmount
-	}
-
-	g.ActionsThisRound++
-	g.nextPlayer()
-	return g.checkAndAdvanceIfBettingComplete()
-}
-
-// Raise - current player raises
-func (g *Game) Raise(raiseAmount int) bool {
-	player := g.GetCurrentPlayer()
-	totalBet := g.CurrentBet + raiseAmount
-	betNeeded := totalBet - player.GetBet()
-
-	actualAmount := min(betNeeded, player.GetChips())
-	player.Bet(actualAmount)
-	g.Pot += actualAmount
-
-	if player.GetBet() > g.CurrentBet {
-		g.CurrentBet = player.GetBet()
-	}
-
-	g.ActionsThisRound++
-	g.nextPlayer()
-	return g.checkAndAdvanceIfBettingComplete()
-}
-
-// Check - current player checks
-func (g *Game) Check() bool {
-	g.ActionsThisRound++
-	g.nextPlayer()
-	return g.checkAndAdvanceIfBettingComplete()
-}
-
-// Fold - current player folds
-func (g *Game) Fold() bool {
-	player := g.GetCurrentPlayer()
-	player.Fold()
-
-	g.ActionsThisRound++
-	g.nextPlayer()
-
-	// Check if only one player remains
-	activePlayers := g.GetActivePlayers()
-	if len(activePlayers) <= 1 {
-		g.endHandEarly()
-		return true
-	}
-
-	return g.checkAndAdvanceIfBettingComplete()
-}
-
-// checkAndAdvanceIfBettingComplete checks if betting round is complete and advances if so
-func (g *Game) checkAndAdvanceIfBettingComplete() bool {
-	if g.IsBettingRoundComplete() {
-		g.advanceToNextPhase()
-		return true // Betting round was completed
-	}
-	return false
-}
-
-// advanceToNextPhase moves to next phase or ends hand
-func (g *Game) advanceToNextPhase() bool {
-	// Reset bets and action count for next round
-	for _, player := range g.Players {
-		player.ResetBet()
-	}
-	g.CurrentBet = 0
-	g.ActionsThisRound = 0
-
-	switch g.CurrentPhase {
-	case PhasePreflop:
-		g.CurrentPhase = PhaseFlop
-		g.dealFlop()
-		g.setFirstPlayerPostFlop()
-		return false
-	case PhaseFlop:
-		g.CurrentPhase = PhaseTurn
-		g.dealTurn()
-		g.setFirstPlayerPostFlop()
-		return false
-	case PhaseTurn:
-		g.CurrentPhase = PhaseRiver
-		g.dealRiver()
-		g.setFirstPlayerPostFlop()
-		return false
-	case PhaseRiver:
-		g.CurrentPhase = PhaseShowdown
-		g.showdown()
-		return true // Hand is over
-	case PhaseShowdown:
-		return true // Already at showdown
-	}
-	return false
-}
-
-// endHandEarly ends hand when only one player remains
-func (g *Game) endHandEarly() {
-	activePlayers := g.GetActivePlayers()
-	if len(activePlayers) == 1 {
-		winner := activePlayers[0]
-		winner.GrandChips(g.Pot)
-		g.CurrentPhase = PhaseShowdown
-	}
-}
-
-// showdown handles the showdown phase
-func (g *Game) showdown() {
-	activePlayers := g.GetActivePlayers()
-	if len(activePlayers) == 0 {
-		return
-	}
-
-	// Evaluate all active hands
-	type playerResult struct {
-		player IPlayer
-		hand   *HandResult
-	}
-
-	results := lo.Map(activePlayers, func(player IPlayer, _ int) playerResult {
-		hand := EvaluatePlayerHand(player, g.CommunityCards)
-		return playerResult{player, hand}
-	})
-
-	// Find the best hand value
-	bestValue := lo.MaxBy(results, func(a, b playerResult) bool {
-		return a.hand.Value > b.hand.Value
-	}).hand.Value
-
-	// Find all winners (in case of tie)
-	winners := lo.FilterMap(results, func(result playerResult, _ int) (IPlayer, bool) {
-		if result.hand.Value == bestValue {
-			return result.player, true
-		}
-		return nil, false
-	})
-
-	// Distribute pot among winners
-	potShare := g.Pot / len(winners)
-	remainder := g.Pot % len(winners)
-
-	for i, winner := range winners {
-		share := potShare
-		if i == 0 {
-			share += remainder // Give remainder to first winner
-		}
-		winner.GrandChips(share)
-	}
-
-	g.CurrentPhase = PhaseShowdown
-}
-
 // GetWinners returns the winners of the current hand (only valid after showdown)
 func (g *Game) GetWinners() []IPlayer {
 	if g.CurrentPhase != PhaseShowdown {
@@ -346,94 +184,6 @@ func (g *Game) IsHandComplete() bool {
 	return g.CurrentPhase == PhaseShowdown
 }
 
-// GetHandResult returns the hand result for a player (only valid after river)
-func (g *Game) GetHandResult(player IPlayer) *HandResult {
-	if g.CurrentPhase < PhaseRiver {
-		return nil
-	}
-	return EvaluatePlayerHand(player, g.CommunityCards)
-}
-
-// NextPhase advances to next phase
-func (g *Game) NextPhase() {
-	// Reset bets for next round
-	for _, player := range g.Players {
-		player.ResetBet()
-	}
-	g.CurrentBet = 0
-
-	switch g.CurrentPhase {
-	case PhasePreflop:
-		g.CurrentPhase = PhaseFlop
-		g.dealFlop()
-	case PhaseFlop:
-		g.CurrentPhase = PhaseTurn
-		g.dealTurn()
-	case PhaseTurn:
-		g.CurrentPhase = PhaseRiver
-		g.dealRiver()
-	case PhaseRiver:
-		g.CurrentPhase = PhaseShowdown
-	}
-
-	// Set first player to act post-flop (small blind position)
-	if g.CurrentPhase != PhaseShowdown {
-		g.setFirstPlayerPostFlop()
-	}
-}
-
-func (g *Game) setFirstPlayerPostFlop() {
-	g.CurrentPlayerPosition = (g.DealerPosition + 1) % len(g.Players)
-
-	// Find first active player
-	original := g.CurrentPlayerPosition
-	for g.Players[g.CurrentPlayerPosition].IsFolded() {
-		g.CurrentPlayerPosition = (g.CurrentPlayerPosition + 1) % len(g.Players)
-		if g.CurrentPlayerPosition == original {
-			break
-		}
-	}
-}
-
-func (g *Game) dealFlop() {
-	// Burn one card
-	if len(g.Deck) > 0 {
-		g.Deck = g.Deck[1:]
-	}
-
-	// Deal 3 cards
-	for i := 0; i < 3 && len(g.Deck) > 0; i++ {
-		g.CommunityCards.Append(g.Deck[0])
-		g.Deck = g.Deck[1:]
-	}
-}
-
-func (g *Game) dealTurn() {
-	// Burn one card
-	if len(g.Deck) > 0 {
-		g.Deck = g.Deck[1:]
-	}
-
-	// Deal 1 card
-	if len(g.Deck) > 0 {
-		g.CommunityCards.Append(g.Deck[0])
-		g.Deck = g.Deck[1:]
-	}
-}
-
-func (g *Game) dealRiver() {
-	// Burn one card
-	if len(g.Deck) > 0 {
-		g.Deck = g.Deck[1:]
-	}
-
-	// Deal 1 card
-	if len(g.Deck) > 0 {
-		g.CommunityCards.Append(g.Deck[0])
-		g.Deck = g.Deck[1:]
-	}
-}
-
 // Utility functions
 
 // GetActivePlayers returns non-folded players
@@ -447,47 +197,42 @@ func (g *Game) GetActivePlayers() []IPlayer {
 	return active
 }
 
-// IsBettingRoundComplete checks if betting round is done
-func (g *Game) IsBettingRoundComplete() bool {
-	activePlayers := g.GetActivePlayers()
-	if len(activePlayers) <= 1 {
-		return true
-	}
+// AI Helper Methods
 
-	// In preflop, we need special handling because of blinds
-	if g.CurrentPhase == PhasePreflop {
-		// Everyone needs to match the current bet or be all-in
-		// AND we need at least as many actions as players
-		if g.ActionsThisRound < len(activePlayers) {
-			return false
-		}
-
-		for _, player := range activePlayers {
-			if player.GetBet() != g.CurrentBet && player.GetChips() > 0 {
-				return false
-			}
-		}
-		return true
-	}
-
-	// Post-flop: everyone needs to act at least once
-	// and all have same bet (usually 0) or are all-in
-	if g.ActionsThisRound < len(activePlayers) {
-		return false
-	}
-
-	for _, player := range activePlayers {
-		if player.GetBet() != g.CurrentBet && player.GetChips() > 0 {
-			return false
+// GetPlayerPosition returns the position of a specific player
+func (g *Game) GetPlayerPosition(player IPlayer) int {
+	for i, p := range g.Players {
+		if p.GetID() == player.GetID() {
+			return i
 		}
 	}
-
-	return true
+	return -1
 }
 
-// NextHand prepares for next hand
-func (g *Game) NextHand() {
-	g.DealerPosition = (g.DealerPosition + 1) % len(g.Players)
+// GetNumActivePlayers returns the number of active (non-folded) players
+func (g *Game) GetNumActivePlayers() int {
+	activePlayers := g.GetActivePlayers()
+	return len(activePlayers)
+}
+
+// GetTotalPlayers returns the total number of players
+func (g *Game) GetTotalPlayers() int {
+	return len(g.Players)
+}
+
+// CalculatePotOdds calculates pot odds for a given player
+func (g *Game) CalculatePotOdds(player IPlayer) float64 {
+	callAmount := g.CurrentBet - player.GetBet()
+	if callAmount <= 0 {
+		return 0.0
+	}
+	return float64(callAmount) / float64(g.Pot+callAmount)
+}
+
+// IsPlayerTurn checks if it's a specific player's turn
+func (g *Game) IsPlayerTurn(player IPlayer) bool {
+	currentPlayer := g.GetCurrentPlayer()
+	return currentPlayer.GetID() == player.GetID()
 }
 
 func min(a, b int) int {
@@ -495,17 +240,4 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func (g *Game) nextPlayer() {
-	original := g.CurrentPlayerPosition
-	for {
-		g.CurrentPlayerPosition = (g.CurrentPlayerPosition + 1) % len(g.Players)
-		player := g.Players[g.CurrentPlayerPosition]
-
-		// Found active player or completed full circle
-		if !player.IsFolded() || g.CurrentPlayerPosition == original {
-			break
-		}
-	}
 }

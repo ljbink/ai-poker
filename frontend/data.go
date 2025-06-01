@@ -22,6 +22,11 @@ type SettingsData struct {
 	AutoSave          bool   `json:"auto_save"`
 	DefaultBuyIn      int    `json:"default_buy_in"`
 	ShowProbabilities bool   `json:"show_probabilities"`
+
+	// Game Setup Settings
+	SmallBlind int `json:"small_blind"`
+	BigBlind   int `json:"big_blind"`
+	NumBots    int `json:"num_bots"`
 }
 
 // Data represents the central data store for the application
@@ -111,6 +116,9 @@ func (d *Data) GetSettings() *SettingsData {
 		AutoSave:          true,
 		DefaultBuyIn:      1000,
 		ShowProbabilities: false,
+		SmallBlind:        5,
+		BigBlind:          10,
+		NumBots:           3,
 	}
 }
 
@@ -146,6 +154,18 @@ func (d *Data) UpdateSetting(key string, value interface{}) {
 		if v, ok := value.(bool); ok {
 			d.settings.ShowProbabilities = v
 		}
+	case "small_blind":
+		if v, ok := value.(int); ok {
+			d.settings.SmallBlind = v
+		}
+	case "big_blind":
+		if v, ok := value.(int); ok {
+			d.settings.BigBlind = v
+		}
+	case "num_bots":
+		if v, ok := value.(int); ok {
+			d.settings.NumBots = v
+		}
 	}
 }
 
@@ -158,7 +178,29 @@ func (d *Data) getDefaultSettings() *SettingsData {
 		AutoSave:          true,
 		DefaultBuyIn:      1000,
 		ShowProbabilities: false,
+		SmallBlind:        5,
+		BigBlind:          10,
+		NumBots:           3,
 	}
+}
+
+// Game Setup Methods
+func (d *Data) GetGameSetup() (smallBlind, bigBlind, numBots int) {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+	settings := d.GetSettings()
+	return settings.SmallBlind, settings.BigBlind, settings.NumBots
+}
+
+func (d *Data) SetGameSetup(smallBlind, bigBlind, numBots int) {
+	d.lock.Lock()
+	defer d.lock.Unlock()
+	if d.settings == nil {
+		d.settings = d.getDefaultSettings()
+	}
+	d.settings.SmallBlind = smallBlind
+	d.settings.BigBlind = bigBlind
+	d.settings.NumBots = numBots
 }
 
 // Utility Methods
