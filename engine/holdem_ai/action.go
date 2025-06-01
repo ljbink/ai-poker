@@ -39,18 +39,6 @@ type Action struct {
 	Amount int // For raise/bet actions, this is the raise amount
 }
 
-// DecisionMaker interface that both human players and AI bots must implement
-type DecisionMaker interface {
-	// MakeDecision takes the current game and player and returns the chosen action
-	MakeDecision(game *holdem.Game, player holdem.IPlayer) Action
-
-	// GetName returns the name/identifier of this decision maker
-	GetName() string
-
-	// IsBot returns true if this is an AI bot, false if human player
-	IsBot() bool
-}
-
 // ActionValidator provides methods to check if actions are valid
 type ActionValidator struct{}
 

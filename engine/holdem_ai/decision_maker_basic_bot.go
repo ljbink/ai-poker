@@ -8,47 +8,52 @@ import (
 	"github.com/ljbink/ai-poker/engine/poker"
 )
 
-// BasicBot implements a simple poker bot with basic strategy
-type BasicBot struct {
-	name      string
+// BasicBotDecisionMaker implements a simple poker bot with basic strategy
+type BasicBotDecisionMaker struct {
+	player    holdem.IPlayer
+	game      *holdem.Game
 	validator *ActionValidator
 	rng       *rand.Rand
 }
 
-// NewBasicBot creates a new basic bot with the given name
-func NewBasicBot(name string) DecisionMaker {
-	return &BasicBot{
-		name:      name,
+// NewBasicBotDecisionMaker creates a new basic bot bound to a specific player and game
+func NewBasicBotDecisionMaker(player holdem.IPlayer, game *holdem.Game) DecisionMaker {
+	return &BasicBotDecisionMaker{
+		player:    player,
+		game:      game,
 		validator: NewActionValidator(),
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
-// GetName returns the bot's name
-func (b *BasicBot) GetName() string {
-	return b.name
-}
+// MakeDecision returns a channel that will receive the chosen action
+func (b *BasicBotDecisionMaker) MakeDecision() <-chan Action {
+	resultChan := make(chan Action, 1)
 
-// IsBot returns true since this is a bot
-func (b *BasicBot) IsBot() bool {
-	return true
-}
+	go func() {
+		// Simulate thinking time for more realistic behavior
+		thinkingTime := time.Duration(100+b.rng.Intn(500)) * time.Millisecond
+		time.Sleep(thinkingTime)
 
-// MakeDecision implements the main decision-making logic
-func (b *BasicBot) MakeDecision(game *holdem.Game, player holdem.IPlayer) Action {
-	// Get valid actions
-	validActions := b.validator.GetValidActions(game, player)
+		// Get valid actions
+		validActions := b.validator.GetValidActions(b.game, b.player)
 
-	// Calculate hand strength
-	handStrength := b.evaluateHandStrength(game, player)
+		// Calculate hand strength
+		handStrength := b.evaluateHandStrength()
 
-	// Make decision based on hand strength and game situation
-	return b.chooseAction(game, player, validActions, handStrength)
+		// Make decision based on hand strength and game situation
+		action := b.chooseAction(validActions, handStrength)
+
+		resultChan <- action
+		close(resultChan)
+	}()
+
+	return resultChan
 }
 
 // evaluateHandStrength evaluates the strength of the current hand
-func (b *BasicBot) evaluateHandStrength(game *holdem.Game, player holdem.IPlayer) float64 {
-	playerCards := player.GetHandCards()
+func (b *BasicBotDecisionMaker) evaluateHandStrength() float64 {
+	playerCards := b.player.GetHandCards()
 	if len(playerCards) != 2 {
 		return 0.0 // No cards yet
 	}
@@ -105,11 +110,11 @@ func (b *BasicBot) evaluateHandStrength(game *holdem.Game, player holdem.IPlayer
 	}
 
 	// Adjust for position
-	strength = b.adjustForPosition(strength, game, player)
+	strength = b.adjustForPosition(strength)
 
 	// Adjust for community cards if available
-	if len(game.CommunityCards) > 0 {
-		strength = b.adjustForCommunityCards(strength, game)
+	if len(b.game.CommunityCards) > 0 {
+		strength = b.adjustForCommunityCards(strength)
 	}
 
 	return min(strength, 1.0)
@@ -117,7 +122,7 @@ func (b *BasicBot) evaluateHandStrength(game *holdem.Game, player holdem.IPlayer
 
 // convertRankForComparison converts poker ranks to numerical values for comparison
 // Treats Ace as high (14), King as 13, Queen as 12, Jack as 11, etc.
-func (b *BasicBot) convertRankForComparison(rank poker.Rank) int {
+func (b *BasicBotDecisionMaker) convertRankForComparison(rank poker.Rank) int {
 	switch rank {
 	case poker.RankAce:
 		return 14
@@ -151,9 +156,9 @@ func (b *BasicBot) convertRankForComparison(rank poker.Rank) int {
 }
 
 // adjustForPosition adjusts hand strength based on position
-func (b *BasicBot) adjustForPosition(strength float64, game *holdem.Game, player holdem.IPlayer) float64 {
-	totalPlayers := game.GetTotalPlayers()
-	position := game.GetPlayerPosition(player)
+func (b *BasicBotDecisionMaker) adjustForPosition(strength float64) float64 {
+	totalPlayers := b.game.GetTotalPlayers()
+	position := b.game.GetPlayerPosition(b.player)
 
 	// Early position (first 1/3 of players) - be more conservative
 	if position < totalPlayers/3 {
@@ -170,13 +175,13 @@ func (b *BasicBot) adjustForPosition(strength float64, game *holdem.Game, player
 }
 
 // adjustForCommunityCards adjusts hand strength based on community cards
-func (b *BasicBot) adjustForCommunityCards(strength float64, game *holdem.Game) float64 {
+func (b *BasicBotDecisionMaker) adjustForCommunityCards(strength float64) float64 {
 	// This is a simplified implementation
 	// In a real bot, you'd want to evaluate actual hand rankings
 
 	// For now, just slightly reduce confidence with more community cards
 	// as more information makes the hand more defined
-	switch len(game.CommunityCards) {
+	switch len(b.game.CommunityCards) {
 	case 3:
 		return strength * 0.95
 	case 4:
@@ -189,82 +194,82 @@ func (b *BasicBot) adjustForCommunityCards(strength float64, game *holdem.Game) 
 }
 
 // chooseAction selects the best action based on hand strength and game state
-func (b *BasicBot) chooseAction(game *holdem.Game, player holdem.IPlayer, validActions []ActionType, handStrength float64) Action {
+func (b *BasicBotDecisionMaker) chooseAction(validActions []ActionType, handStrength float64) Action {
 	// Calculate pot odds
-	potOdds := game.CalculatePotOdds(player)
+	potOdds := b.game.CalculatePotOdds(b.player)
 
 	// Decision thresholds
 	foldThreshold := 0.3
 	raiseThreshold := 0.7
 
 	// Adjust thresholds based on pot odds
-	if potOdds > 0.3 { // Good pot odds
-		foldThreshold -= 0.1
-	}
-	if potOdds > 0.5 { // Excellent pot odds
-		foldThreshold -= 0.1
+	if potOdds > 0 {
+		// Better pot odds mean we can play looser
+		foldThreshold -= potOdds * 0.5
+		raiseThreshold -= potOdds * 0.3
 	}
 
-	// Make decision
+	// Decision logic
 	if handStrength < foldThreshold {
+		// Weak hand - fold unless we can check
+		if b.canCheck(validActions) {
+			return Action{Type: ActionCheck}
+		}
+		return Action{Type: ActionFold}
+	} else if handStrength > raiseThreshold {
+		// Strong hand - raise or bet
+		if b.canRaise(validActions) {
+			raiseAmount := b.calculateRaiseAmount(handStrength)
+			return Action{Type: ActionRaise, Amount: raiseAmount}
+		} else if b.canCall(validActions) {
+			return Action{Type: ActionCall}
+		} else if b.canCheck(validActions) {
+			return Action{Type: ActionCheck}
+		}
+		return Action{Type: ActionFold}
+	} else {
+		// Medium hand - call or check
+		if b.canCheck(validActions) {
+			return Action{Type: ActionCheck}
+		} else if b.canCall(validActions) {
+			// Sometimes fold medium hands if pot odds are bad
+			if potOdds < 0.3 && b.rng.Float64() < 0.3 {
+				return Action{Type: ActionFold}
+			}
+			return Action{Type: ActionCall}
+		}
 		return Action{Type: ActionFold}
 	}
-
-	if handStrength > raiseThreshold && b.canRaise(validActions) {
-		// Decide raise amount
-		raiseAmount := b.calculateRaiseAmount(game, player, handStrength)
-		return Action{Type: ActionRaise, Amount: raiseAmount}
-	}
-
-	// Medium strength hands - call or check
-	if b.canCall(validActions) {
-		return Action{Type: ActionCall}
-	}
-
-	if b.canCheck(validActions) {
-		return Action{Type: ActionCheck}
-	}
-
-	// Last resort - fold
-	return Action{Type: ActionFold}
 }
 
-// calculateRaiseAmount determines how much to raise
-func (b *BasicBot) calculateRaiseAmount(game *holdem.Game, player holdem.IPlayer, handStrength float64) int {
+// calculateRaiseAmount determines how much to raise based on hand strength
+func (b *BasicBotDecisionMaker) calculateRaiseAmount(handStrength float64) int {
 	// Base raise amount
-	baseRaise := game.BigBlind * 3
+	baseRaise := b.game.BigBlind * 2
 
-	// Adjust based on hand strength
-	multiplier := 1.0 + (handStrength-0.7)*2 // Range: 1.0 to 1.6
-
-	// Adjust based on position (more aggressive in late position)
-	totalPlayers := game.GetTotalPlayers()
-	position := game.GetPlayerPosition(player)
-	if position >= (totalPlayers*2)/3 {
-		multiplier *= 1.2
-	}
-
-	// Add some randomness
-	multiplier *= 0.8 + b.rng.Float64()*0.4 // ±20% randomness
+	// Scale based on hand strength
+	multiplier := 1.0 + (handStrength-0.5)*2 // Range: 0 to 3
 
 	raiseAmount := int(float64(baseRaise) * multiplier)
 
-	// Don't raise more than 1/4 of our stack
-	maxRaise := player.GetChips() / 4
+	// Ensure we don't raise more than we can afford
+	callAmount := b.game.CurrentBet - b.player.GetBet()
+	maxRaise := b.player.GetChips() - callAmount
+
 	if raiseAmount > maxRaise {
 		raiseAmount = maxRaise
 	}
 
-	// Minimum raise should be at least the big blind
-	if raiseAmount < game.BigBlind {
-		raiseAmount = game.BigBlind
+	// Minimum raise
+	if raiseAmount < b.game.BigBlind {
+		raiseAmount = b.game.BigBlind
 	}
 
 	return raiseAmount
 }
 
-// Helper methods to check if specific actions are available
-func (b *BasicBot) canRaise(validActions []ActionType) bool {
+// Helper methods to check valid actions
+func (b *BasicBotDecisionMaker) canRaise(validActions []ActionType) bool {
 	for _, action := range validActions {
 		if action == ActionRaise {
 			return true
@@ -273,7 +278,7 @@ func (b *BasicBot) canRaise(validActions []ActionType) bool {
 	return false
 }
 
-func (b *BasicBot) canCall(validActions []ActionType) bool {
+func (b *BasicBotDecisionMaker) canCall(validActions []ActionType) bool {
 	for _, action := range validActions {
 		if action == ActionCall {
 			return true
@@ -282,7 +287,7 @@ func (b *BasicBot) canCall(validActions []ActionType) bool {
 	return false
 }
 
-func (b *BasicBot) canCheck(validActions []ActionType) bool {
+func (b *BasicBotDecisionMaker) canCheck(validActions []ActionType) bool {
 	for _, action := range validActions {
 		if action == ActionCheck {
 			return true
