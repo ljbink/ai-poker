@@ -84,7 +84,7 @@ func (v *GameView) Render(width, height int) string {
 	v.header.SetWidth(width)
 	v.helper.SetWidth(width)
 
-	content := "Welcome, " + v.model.GetPlayerName() + "!\n\n" +
+	content := "Welcome, " + GetData().GetPlayerName() + "!\n\n" +
 		"Game logic will be implemented here."
 
 	// Title at the top using header component

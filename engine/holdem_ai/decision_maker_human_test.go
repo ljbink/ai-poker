@@ -7,213 +7,319 @@ import (
 	"github.com/ljbink/ai-poker/engine/holdem"
 )
 
-func TestNewHumanUserDecisionMaker(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-	dm := NewHumanUserDecisionMaker(player, game)
+func TestNewHumanDecisionMaker(t *testing.T) {
+	human := NewHumanDecisionMaker()
 
-	if dm.timeout != 30*time.Second {
-		t.Errorf("Expected timeout 30s, got %v", dm.timeout)
+	if human == nil {
+		t.Fatal("NewHumanDecisionMaker returned nil")
 	}
 
-	// Test that decision maker works correctly
-	actions := dm.GetValidActions()
-	if len(actions) == 0 {
-		t.Error("Expected valid actions when game is active")
+	if human.validator == nil {
+		t.Error("HumanDecisionMaker validator is nil")
 	}
-}
 
-func TestSendAction(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-	dm := NewHumanUserDecisionMaker(player, game)
+	if human.actionChannel == nil {
+		t.Error("HumanDecisionMaker actionChannel is nil")
+	}
 
-	// Test valid action (use fold which is always valid)
-	action := CreateFoldAction()
-	err := dm.SendAction(action)
-	if err != nil {
-		t.Errorf("Unexpected error sending valid action: %v", err)
+	// Test channel capacity
+	if cap(human.actionChannel) != 1 {
+		t.Errorf("Expected actionChannel capacity 1, got %d", cap(human.actionChannel))
 	}
 }
 
-func TestMakeDecisionWithAction(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-	dm := NewHumanUserDecisionMaker(player, game)
+func TestHumanDecisionMakerTimeout(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
 
-	// Set shorter timeout for testing
-	dm.SetTimeout(100 * time.Millisecond)
+	// Don't provide any action - should timeout
+	ch := human.MakeDecision(game, player)
 
-	// Send action in separate goroutine (use fold which is always valid)
-	expectedAction := CreateFoldAction()
+	start := time.Now()
+	select {
+	case action := <-ch:
+		duration := time.Since(start)
+
+		// Should timeout around 60 seconds, but we'll be lenient for testing
+		if duration < 50*time.Second {
+			t.Errorf("Expected timeout around 60s, got %v", duration)
+		}
+
+		// Should return fold action on timeout
+		if action.Type != holdem.ActionFold {
+			t.Errorf("Expected fold action on timeout, got %d", action.Type)
+		}
+
+		if action.PlayerID != player.GetID() {
+			t.Errorf("Expected PlayerID %d, got %d", player.GetID(), action.PlayerID)
+		}
+
+		if action.Amount != 0 {
+			t.Errorf("Expected Amount 0 for fold, got %d", action.Amount)
+		}
+
+	case <-time.After(65 * time.Second):
+		t.Error("Decision maker did not timeout within expected time")
+	}
+}
+
+func TestHumanDecisionMakerValidAction(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
+
+	// Provide a valid action
+	validAction := holdem.Action{
+		PlayerID: player.GetID(),
+		Type:     holdem.ActionCheck,
+		Amount:   0,
+	}
+
+	ch := human.MakeDecision(game, player)
+
+	// Send action after a short delay
 	go func() {
-		time.Sleep(10 * time.Millisecond) // Small delay
-		dm.SendAction(expectedAction)
+		time.Sleep(100 * time.Millisecond)
+		human.SetAction(validAction)
 	}()
 
-	// Make decision and wait for result
-	actionChan := dm.MakeDecision()
-	action := <-actionChan
-	if action.Type != expectedAction.Type {
-		t.Errorf("Expected action %s, got %s", expectedAction.Type, action.Type)
+	select {
+	case receivedAction := <-ch:
+		if receivedAction.PlayerID != validAction.PlayerID {
+			t.Errorf("Expected PlayerID %d, got %d", validAction.PlayerID, receivedAction.PlayerID)
+		}
+		if receivedAction.Type != validAction.Type {
+			t.Errorf("Expected Type %d, got %d", validAction.Type, receivedAction.Type)
+		}
+		if receivedAction.Amount != validAction.Amount {
+			t.Errorf("Expected Amount %d, got %d", validAction.Amount, receivedAction.Amount)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Did not receive action within timeout")
 	}
 }
 
-func TestMakeDecisionTimeout(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-	dm := NewHumanUserDecisionMaker(player, game)
+func TestHumanDecisionMakerInvalidAction(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
 
-	// Set very short timeout
-	dm.SetTimeout(10 * time.Millisecond)
+	// Provide an invalid action (wrong player ID)
+	invalidAction := holdem.Action{
+		PlayerID: 999, // Wrong player ID
+		Type:     holdem.ActionCheck,
+		Amount:   0,
+	}
 
-	// Make decision without sending action (should timeout)
-	actionChan := dm.MakeDecision()
-	action := <-actionChan
-	if action.Type != ActionFold {
-		t.Errorf("Expected fold action on timeout, got %s", action.Type)
+	ch := human.MakeDecision(game, player)
+
+	// Send invalid action
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		human.SetAction(invalidAction)
+	}()
+
+	select {
+	case receivedAction := <-ch:
+		// Should receive a fold action as fallback
+		if receivedAction.Type != holdem.ActionFold {
+			t.Errorf("Expected fold action as fallback, got %d", receivedAction.Type)
+		}
+		if receivedAction.PlayerID != player.GetID() {
+			t.Errorf("Expected PlayerID %d, got %d", player.GetID(), receivedAction.PlayerID)
+		}
+		if receivedAction.Amount != 0 {
+			t.Errorf("Expected Amount 0 for fold, got %d", receivedAction.Amount)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Did not receive fallback action within timeout")
 	}
 }
 
-func TestGetValidActions(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-	dm := NewHumanUserDecisionMaker(player, game)
+func TestHumanDecisionMakerSetActionChannelBehavior(t *testing.T) {
+	human := NewHumanDecisionMaker()
 
-	actions := dm.GetValidActions()
+	action := holdem.Action{
+		PlayerID: 1,
+		Type:     holdem.ActionRaise,
+		Amount:   100,
+	}
+
+	// Test successful action setting
+	human.SetAction(action)
+
+	// Channel should have the action
+	select {
+	case receivedAction := <-human.actionChannel:
+		if receivedAction.PlayerID != action.PlayerID {
+			t.Errorf("Expected PlayerID %d, got %d", action.PlayerID, receivedAction.PlayerID)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Action was not set in channel")
+	}
+
+	// Test channel full behavior - should not block
+	human.SetAction(action) // Fill the channel
+	human.SetAction(action) // This should not block (channel full case)
+
+	// Channel should still have one action
+	select {
+	case <-human.actionChannel:
+		// Expected
+	default:
+		t.Error("Channel should have had an action")
+	}
+
+	// Channel should now be empty
+	select {
+	case <-human.actionChannel:
+		t.Error("Channel should be empty after reading")
+	default:
+		// Expected
+	}
+}
+
+func TestHumanDecisionMakerGetAvailableActions(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
+
+	actions := human.GetAvailableActions(game, player)
+
+	// Should return some actions for a valid game state
 	if len(actions) == 0 {
-		t.Error("Expected valid actions when game is active")
+		t.Error("Expected some available actions")
+	}
+
+	// All returned actions should be valid
+	for _, action := range actions {
+		if !holdem.IsValidActionType(action) {
+			t.Errorf("Invalid action type returned: %d", action)
+		}
 	}
 }
 
-func TestActionNeededCallback(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-	dm := NewHumanUserDecisionMaker(player, game)
+func TestHumanDecisionMakerRaiseAmounts(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
 
-	callbackCalled := false
-	var receivedGame *holdem.Game
-	var receivedPlayer holdem.IPlayer
-	var receivedActions []ActionType
+	minRaise := human.GetMinRaiseAmount(game, player)
+	maxRaise := human.GetMaxRaiseAmount(game, player)
 
-	// Set callback
-	dm.SetActionNeededCallback(func(g *holdem.Game, p holdem.IPlayer, actions []ActionType) {
-		callbackCalled = true
-		receivedGame = g
-		receivedPlayer = p
-		receivedActions = actions
-	})
-
-	// Set short timeout and don't send action (will timeout)
-	dm.SetTimeout(10 * time.Millisecond)
-
-	// Make decision (will trigger callback)
-	actionChan := dm.MakeDecision()
-	<-actionChan // Wait for decision to complete
-
-	// Give callback time to execute
-	time.Sleep(20 * time.Millisecond)
-
-	if !callbackCalled {
-		t.Error("Expected callback to be called")
+	// Min raise should be positive for most cases
+	if minRaise < 0 {
+		t.Errorf("Min raise should not be negative, got %d", minRaise)
 	}
 
-	if receivedGame == nil {
-		t.Error("Expected to receive game")
-	}
-
-	if receivedPlayer == nil {
-		t.Error("Expected to receive player")
-	}
-
-	if receivedPlayer.GetID() != player.GetID() {
-		t.Error("Expected callback to receive correct player")
-	}
-
-	if len(receivedActions) == 0 {
-		t.Error("Expected to receive valid actions")
-	}
-}
-
-func TestConvenienceActions(t *testing.T) {
-	tests := []struct {
-		name     string
-		creator  func() Action
-		expected ActionType
-	}{
-		{"Fold", CreateFoldAction, ActionFold},
-		{"Check", CreateCheckAction, ActionCheck},
-		{"Call", CreateCallAction, ActionCall},
-		{"AllIn", CreateAllInAction, ActionAllIn},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			action := tt.creator()
-			if action.Type != tt.expected {
-				t.Errorf("Expected action type %s, got %s", tt.expected, action.Type)
-			}
-		})
-	}
-}
-
-func TestCreateRaiseAction(t *testing.T) {
-	amount := 100
-	action := CreateRaiseAction(amount)
-
-	if action.Type != ActionRaise {
-		t.Errorf("Expected action type %s, got %s", ActionRaise, action.Type)
-	}
-
-	if action.Amount != amount {
-		t.Errorf("Expected amount %d, got %d", amount, action.Amount)
-	}
-}
-
-func TestHelperFunctions(t *testing.T) {
-	game := createTestGame()
-	player := game.Players[0]
-
-	// Test FormatGamePhase
-	phase := FormatGamePhase(game.CurrentPhase)
-	if phase != "Preflop" {
-		t.Errorf("Expected phase 'Preflop', got '%s'", phase)
-	}
-
-	// Test FormatPlayerCards
-	playerCards := FormatPlayerCards(player)
-	if playerCards == "" {
-		t.Error("Expected player cards to be formatted")
-	}
-
-	// Test FormatCommunityCards (should be empty in preflop)
-	communityCards := FormatCommunityCards(game)
-	if communityCards != "" {
-		t.Errorf("Expected empty community cards in preflop, got '%s'", communityCards)
-	}
-
-	// Test CalculateCallAmount
-	callAmount := CalculateCallAmount(game, player)
-	if callAmount < 0 {
-		t.Error("Call amount should not be negative")
-	}
-
-	// Test CalculateMinRaise
-	minRaise := CalculateMinRaise(game)
-	if minRaise != game.BigBlind {
-		t.Errorf("Expected min raise %d, got %d", game.BigBlind, minRaise)
-	}
-
-	// Test CalculateMaxRaise
-	maxRaise := CalculateMaxRaise(game, player)
+	// Max raise should be at least the player's chips
 	if maxRaise < 0 {
-		t.Error("Max raise should not be negative")
+		t.Errorf("Max raise should not be negative, got %d", maxRaise)
+	}
+
+	// Max should be >= min (unless both are 0)
+	if maxRaise > 0 && minRaise > maxRaise {
+		t.Errorf("Min raise (%d) should not exceed max raise (%d)", minRaise, maxRaise)
 	}
 }
 
-// Helper function to create test game
-func createTestGame() *holdem.Game {
-	game := holdem.NewGame([]string{"Player1", "Player2"}, 5, 10)
-	game.StartHand()
-	return game
+func TestHumanDecisionMakerValidateAction(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
+
+	// Test valid action
+	validAction := holdem.Action{
+		PlayerID: player.GetID(),
+		Type:     holdem.ActionCheck,
+		Amount:   0,
+	}
+
+	err := human.ValidateAction(game, player, validAction)
+	if err != nil {
+		t.Errorf("Expected no error for valid action, got: %v", err)
+	}
+
+	// Test invalid action
+	invalidAction := holdem.Action{
+		PlayerID: 999, // Wrong player ID
+		Type:     holdem.ActionCheck,
+		Amount:   0,
+	}
+
+	err = human.ValidateAction(game, player, invalidAction)
+	if err == nil {
+		t.Error("Expected error for invalid action")
+	}
+}
+
+func TestHumanDecisionMakerGetCallAmount(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player1, player2 := createTestGameSetup()
+
+	// Initially, call amount should be 0 (no bets)
+	callAmount := human.GetCallAmount(game, player1)
+	if callAmount != 0 {
+		t.Errorf("Expected call amount 0 initially, got %d", callAmount)
+	}
+
+	// Add a bet from player2
+	player2.Bet(50)
+	raiseAction := holdem.Action{
+		PlayerID: player2.GetID(),
+		Type:     holdem.ActionRaise,
+		Amount:   50,
+	}
+	game.TakeAction(raiseAction)
+
+	// Now player1 should need to call 50
+	callAmount = human.GetCallAmount(game, player1)
+	if callAmount != 50 {
+		t.Errorf("Expected call amount 50, got %d", callAmount)
+	}
+
+	// If player1 has already bet some amount
+	player1.Bet(20)
+	callAmount = human.GetCallAmount(game, player1)
+	if callAmount != 30 { // 50 - 20 = 30
+		t.Errorf("Expected call amount 30, got %d", callAmount)
+	}
+}
+
+func TestHumanDecisionMakerGetCurrentPhaseActions(t *testing.T) {
+	human := NewHumanDecisionMaker()
+	game, player, _ := createTestGameSetup()
+
+	// Test different phases
+	phases := []holdem.GamePhase{
+		holdem.PhasePreflop,
+		holdem.PhaseFlop,
+		holdem.PhaseTurn,
+		holdem.PhaseRiver,
+	}
+
+	for _, phase := range phases {
+		game.SetCurrentPhase(phase)
+
+		// Add an action in this phase
+		action := holdem.Action{
+			PlayerID: player.GetID(),
+			Type:     holdem.ActionCheck,
+			Amount:   0,
+		}
+		game.TakeAction(action)
+
+		// Get actions for this phase
+		actions := human.getCurrentPhaseActions(game)
+
+		if len(actions) == 0 {
+			t.Errorf("Expected actions in phase %d", phase)
+		}
+
+		if actions[0].Type != holdem.ActionCheck {
+			t.Errorf("Expected check action in phase %d, got %d", phase, actions[0].Type)
+		}
+	}
+
+	// Test invalid phase
+	game.SetCurrentPhase(holdem.GamePhase(99))
+	actions := human.getCurrentPhaseActions(game)
+	if len(actions) != 0 {
+		t.Errorf("Expected no actions for invalid phase, got %d", len(actions))
+	}
 }

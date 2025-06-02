@@ -1,7 +1,6 @@
 package frontend
 
 import (
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -15,10 +14,4 @@ type View interface {
 
 	// GetType returns the view type for navigation
 	GetType() ViewType
-
-	// ShortHelp returns keybindings to be shown in the mini help view
-	ShortHelp() []key.Binding
-
-	// FullHelp returns keybindings for the expanded help view
-	FullHelp() [][]key.Binding
 }

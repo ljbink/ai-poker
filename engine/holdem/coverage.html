@@ -1,0 +1,1864 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>holdem: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/ljbink/ai-poker/engine/holdem/evaluator.go (90.8%)</option>
+				
+				<option value="file1">github.com/ljbink/ai-poker/engine/holdem/game.go (96.7%)</option>
+				
+				<option value="file2">github.com/ljbink/ai-poker/engine/holdem/player.go (100.0%)</option>
+				
+				<option value="file3">github.com/ljbink/ai-poker/engine/holdem/validator.go (91.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package holdem
+
+import (
+        "sort"
+
+        "github.com/ljbink/ai-poker/engine/poker"
+)
+
+// HandRank represents the ranking of a poker hand
+type HandRank int
+
+const (
+        HighCard HandRank = iota
+        OnePair
+        TwoPair
+        ThreeOfAKind
+        Straight
+        Flush
+        FullHouse
+        FourOfAKind
+        StraightFlush
+        RoyalFlush
+)
+
+// HandResult contains the evaluation result of a poker hand
+type HandResult struct {
+        Rank        HandRank     // The hand rank (pair, flush, etc.)
+        Description string       // Human-readable description
+        Value       int          // Numeric value for comparison (higher is better)
+        Cards       poker.Cards  // The cards that make up the hand
+        Kickers     []poker.Rank // Kicker cards for tie-breaking
+}
+
+type IHandEvaluator interface {
+        EvaluateHand(holeCards []*poker.Card, communityCards poker.Cards) *HandResult
+        CompareHands(hand1, hand2 *HandResult) int
+}
+
+// HandEvaluator provides methods for evaluating poker hands
+type HandEvaluator struct{}
+
+// NewHandEvaluator creates a new hand evaluator
+func NewHandEvaluator() *HandEvaluator <span class="cov8" title="1">{
+        return &amp;HandEvaluator{}
+}</span>
+
+// EvaluateHand evaluates a player's best 5-card hand from hole cards and community cards
+func (e *HandEvaluator) EvaluateHand(holeCards []*poker.Card, communityCards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if len(holeCards) &lt; 2 </span><span class="cov8" title="1">{
+                return &amp;HandResult{
+                        Rank:        HighCard,
+                        Description: "No cards",
+                        Value:       0,
+                        Cards:       poker.Cards{},
+                        Kickers:     []poker.Rank{},
+                }
+        }</span>
+
+        // Combine hole cards and community cards
+        <span class="cov8" title="1">allCards := poker.Cards{}
+        allCards.Append(holeCards...)
+        allCards.Append(communityCards...)
+
+        // Filter out nil cards
+        validCards := poker.Cards{}
+        for _, card := range allCards </span><span class="cov8" title="1">{
+                if card != nil </span><span class="cov8" title="1">{
+                        validCards.Append(card)
+                }</span>
+        }
+
+        <span class="cov8" title="1">if len(validCards) &lt; 2 </span><span class="cov0" title="0">{
+                return &amp;HandResult{
+                        Rank:        HighCard,
+                        Description: "Insufficient cards",
+                        Value:       0,
+                        Cards:       validCards,
+                        Kickers:     []poker.Rank{},
+                }
+        }</span>
+
+        // Evaluate the best 5-card hand
+        <span class="cov8" title="1">return e.findBestHand(validCards)</span>
+}
+
+// CompareHands compares two hand results and returns:
+// 1 if hand1 &gt; hand2, -1 if hand1 &lt; hand2, 0 if equal
+func (e *HandEvaluator) CompareHands(hand1, hand2 *HandResult) int <span class="cov8" title="1">{
+        // First compare by hand rank
+        if hand1.Rank &gt; hand2.Rank </span><span class="cov8" title="1">{
+                return 1
+        }</span>
+        <span class="cov8" title="1">if hand1.Rank &lt; hand2.Rank </span><span class="cov8" title="1">{
+                return -1
+        }</span>
+
+        // Same rank, compare by value
+        <span class="cov8" title="1">if hand1.Value &gt; hand2.Value </span><span class="cov8" title="1">{
+                return 1
+        }</span>
+        <span class="cov8" title="1">if hand1.Value &lt; hand2.Value </span><span class="cov8" title="1">{
+                return -1
+        }</span>
+
+        // Same value, compare kickers
+        <span class="cov8" title="1">return e.compareKickers(hand1.Kickers, hand2.Kickers)</span>
+}
+
+// findBestHand finds the best 5-card hand from available cards
+func (e *HandEvaluator) findBestHand(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if len(cards) &lt; 5 </span><span class="cov8" title="1">{
+                return e.evaluatePartialHand(cards)
+        }</span>
+
+        <span class="cov8" title="1">bestHand := &amp;HandResult{
+                Rank:  HighCard,
+                Value: 0,
+        }
+
+        // Try all combinations of 5 cards
+        e.generateCombinations(cards, 5, func(combination poker.Cards) </span><span class="cov8" title="1">{
+                hand := e.evaluateFiveCardHand(combination)
+                if e.CompareHands(hand, bestHand) &gt; 0 </span><span class="cov8" title="1">{
+                        bestHand = hand
+                }</span>
+        })
+
+        <span class="cov8" title="1">return bestHand</span>
+}
+
+// evaluateFiveCardHand evaluates exactly 5 cards
+func (e *HandEvaluator) evaluateFiveCardHand(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if len(cards) != 5 </span><span class="cov0" title="0">{
+                return e.evaluatePartialHand(cards)
+        }</span>
+
+        // Sort cards by rank (descending)
+        <span class="cov8" title="1">sortedCards := make(poker.Cards, len(cards))
+        copy(sortedCards, cards)
+        sort.Slice(sortedCards, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(sortedCards[i].Rank) &gt; e.rankValue(sortedCards[j].Rank)
+        }</span>)
+
+        // Check for each hand type (highest to lowest)
+        <span class="cov8" title="1">if result := e.checkRoyalFlush(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkStraightFlush(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkFourOfAKind(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkFullHouse(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkFlush(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkStraight(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkThreeOfAKind(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkTwoPair(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+        <span class="cov8" title="1">if result := e.checkOnePair(sortedCards); result != nil </span><span class="cov8" title="1">{
+                return result
+        }</span>
+
+        <span class="cov8" title="1">return e.checkHighCard(sortedCards)</span>
+}
+
+// evaluatePartialHand evaluates hands with less than 5 cards
+func (e *HandEvaluator) evaluatePartialHand(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if len(cards) == 0 </span><span class="cov0" title="0">{
+                return &amp;HandResult{
+                        Rank:        HighCard,
+                        Description: "No cards",
+                        Value:       0,
+                        Cards:       cards,
+                        Kickers:     []poker.Rank{},
+                }
+        }</span>
+
+        // Sort cards by rank (descending)
+        <span class="cov8" title="1">sortedCards := make(poker.Cards, len(cards))
+        copy(sortedCards, cards)
+        sort.Slice(sortedCards, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(sortedCards[i].Rank) &gt; e.rankValue(sortedCards[j].Rank)
+        }</span>)
+
+        // Check for pairs/trips with available cards
+        <span class="cov8" title="1">if len(cards) &gt;= 4 </span><span class="cov0" title="0">{
+                if result := e.checkFourOfAKind(sortedCards); result != nil </span><span class="cov0" title="0">{
+                        return result
+                }</span>
+        }
+        <span class="cov8" title="1">if len(cards) &gt;= 3 </span><span class="cov8" title="1">{
+                if result := e.checkThreeOfAKind(sortedCards); result != nil </span><span class="cov0" title="0">{
+                        return result
+                }</span>
+        }
+        <span class="cov8" title="1">if len(cards) &gt;= 2 </span><span class="cov8" title="1">{
+                if result := e.checkOnePair(sortedCards); result != nil </span><span class="cov8" title="1">{
+                        return result
+                }</span>
+        }
+
+        <span class="cov8" title="1">return e.checkHighCard(sortedCards)</span>
+}
+
+// Hand checking functions
+func (e *HandEvaluator) checkRoyalFlush(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if !e.isFlush(cards) </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">if !e.isRoyalStraight(cards) </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        RoyalFlush,
+                Description: "Royal Flush",
+                Value:       9000000,
+                Cards:       cards,
+                Kickers:     []poker.Rank{},
+        }</span>
+}
+
+func (e *HandEvaluator) checkStraightFlush(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if !e.isFlush(cards) </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+        <span class="cov8" title="1">highCard := e.getStraightHighCard(cards)
+        if highCard == poker.RankNone </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        StraightFlush,
+                Description: "Straight Flush",
+                Value:       8000000 + e.rankValue(highCard),
+                Cards:       cards,
+                Kickers:     []poker.Rank{highCard},
+        }</span>
+}
+
+func (e *HandEvaluator) checkFourOfAKind(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        rankCounts := e.getRankCounts(cards)
+
+        var quadRank poker.Rank
+        var kicker poker.Rank
+
+        for rank, count := range rankCounts </span><span class="cov8" title="1">{
+                if count == 4 </span><span class="cov8" title="1">{
+                        quadRank = rank
+                }</span> else<span class="cov8" title="1"> if count &gt;= 1 </span><span class="cov8" title="1">{
+                        kicker = rank
+                }</span>
+        }
+
+        <span class="cov8" title="1">if quadRank == poker.RankNone </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        FourOfAKind,
+                Description: "Four of a Kind",
+                Value:       7000000 + e.rankValue(quadRank)*1000 + e.rankValue(kicker),
+                Cards:       cards,
+                Kickers:     []poker.Rank{quadRank, kicker},
+        }</span>
+}
+
+func (e *HandEvaluator) checkFullHouse(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        rankCounts := e.getRankCounts(cards)
+
+        var tripRank, pairRank poker.Rank
+
+        for rank, count := range rankCounts </span><span class="cov8" title="1">{
+                if count == 3 </span><span class="cov8" title="1">{
+                        tripRank = rank
+                }</span> else<span class="cov8" title="1"> if count == 2 </span><span class="cov8" title="1">{
+                        pairRank = rank
+                }</span>
+        }
+
+        <span class="cov8" title="1">if tripRank == poker.RankNone || pairRank == poker.RankNone </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        FullHouse,
+                Description: "Full House",
+                Value:       6000000 + e.rankValue(tripRank)*1000 + e.rankValue(pairRank),
+                Cards:       cards,
+                Kickers:     []poker.Rank{tripRank, pairRank},
+        }</span>
+}
+
+func (e *HandEvaluator) checkFlush(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        if !e.isFlush(cards) </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // Get all ranks for kickers
+        <span class="cov8" title="1">var kickers []poker.Rank
+        for _, card := range cards </span><span class="cov8" title="1">{
+                kickers = append(kickers, card.Rank)
+        }</span>
+
+        // Sort kickers descending
+        <span class="cov8" title="1">sort.Slice(kickers, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(kickers[i]) &gt; e.rankValue(kickers[j])
+        }</span>)
+
+        <span class="cov8" title="1">value := 5000000
+        for i, rank := range kickers </span><span class="cov8" title="1">{
+                value += e.rankValue(rank) * (1000 / (i + 1))
+        }</span>
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        Flush,
+                Description: "Flush",
+                Value:       value,
+                Cards:       cards,
+                Kickers:     kickers,
+        }</span>
+}
+
+func (e *HandEvaluator) checkStraight(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        highCard := e.getStraightHighCard(cards)
+        if highCard == poker.RankNone </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        Straight,
+                Description: "Straight",
+                Value:       4000000 + e.rankValue(highCard),
+                Cards:       cards,
+                Kickers:     []poker.Rank{highCard},
+        }</span>
+}
+
+func (e *HandEvaluator) checkThreeOfAKind(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        rankCounts := e.getRankCounts(cards)
+
+        var tripRank poker.Rank
+        var kickers []poker.Rank
+
+        for rank, count := range rankCounts </span><span class="cov8" title="1">{
+                if count == 3 </span><span class="cov8" title="1">{
+                        tripRank = rank
+                }</span> else<span class="cov8" title="1"> if count &gt;= 1 </span><span class="cov8" title="1">{
+                        for i := 0; i &lt; count; i++ </span><span class="cov8" title="1">{
+                                kickers = append(kickers, rank)
+                        }</span>
+                }
+        }
+
+        <span class="cov8" title="1">if tripRank == poker.RankNone </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // Sort kickers descending
+        <span class="cov8" title="1">sort.Slice(kickers, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(kickers[i]) &gt; e.rankValue(kickers[j])
+        }</span>)
+
+        <span class="cov8" title="1">value := 3000000 + e.rankValue(tripRank)*1000
+        for i, rank := range kickers </span><span class="cov8" title="1">{
+                if i &lt; 2 </span><span class="cov8" title="1">{ // Only consider top 2 kickers
+                        value += e.rankValue(rank) * (100 / (i + 1))
+                }</span>
+        }
+
+        <span class="cov8" title="1">allKickers := []poker.Rank{tripRank}
+        allKickers = append(allKickers, kickers...)
+
+        return &amp;HandResult{
+                Rank:        ThreeOfAKind,
+                Description: "Three of a Kind",
+                Value:       value,
+                Cards:       cards,
+                Kickers:     allKickers,
+        }</span>
+}
+
+func (e *HandEvaluator) checkTwoPair(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        rankCounts := e.getRankCounts(cards)
+
+        var pairs []poker.Rank
+        var kickers []poker.Rank
+
+        for rank, count := range rankCounts </span><span class="cov8" title="1">{
+                if count == 2 </span><span class="cov8" title="1">{
+                        pairs = append(pairs, rank)
+                }</span> else<span class="cov8" title="1"> if count &gt;= 1 </span><span class="cov8" title="1">{
+                        for i := 0; i &lt; count; i++ </span><span class="cov8" title="1">{
+                                kickers = append(kickers, rank)
+                        }</span>
+                }
+        }
+
+        <span class="cov8" title="1">if len(pairs) &lt; 2 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // Sort pairs descending
+        <span class="cov8" title="1">sort.Slice(pairs, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(pairs[i]) &gt; e.rankValue(pairs[j])
+        }</span>)
+
+        // Sort kickers descending
+        <span class="cov8" title="1">sort.Slice(kickers, func(i, j int) bool </span><span class="cov0" title="0">{
+                return e.rankValue(kickers[i]) &gt; e.rankValue(kickers[j])
+        }</span>)
+
+        <span class="cov8" title="1">value := 2000000 + e.rankValue(pairs[0])*1000 + e.rankValue(pairs[1])*100
+        if len(kickers) &gt; 0 </span><span class="cov8" title="1">{
+                value += e.rankValue(kickers[0])
+        }</span>
+
+        <span class="cov8" title="1">allKickers := pairs
+        allKickers = append(allKickers, kickers...)
+
+        return &amp;HandResult{
+                Rank:        TwoPair,
+                Description: "Two Pair",
+                Value:       value,
+                Cards:       cards,
+                Kickers:     allKickers,
+        }</span>
+}
+
+func (e *HandEvaluator) checkOnePair(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        rankCounts := e.getRankCounts(cards)
+
+        var pairRank poker.Rank
+        var kickers []poker.Rank
+
+        for rank, count := range rankCounts </span><span class="cov8" title="1">{
+                if count == 2 </span><span class="cov8" title="1">{
+                        pairRank = rank
+                }</span> else<span class="cov8" title="1"> if count &gt;= 1 </span><span class="cov8" title="1">{
+                        for i := 0; i &lt; count; i++ </span><span class="cov8" title="1">{
+                                kickers = append(kickers, rank)
+                        }</span>
+                }
+        }
+
+        <span class="cov8" title="1">if pairRank == poker.RankNone </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        // Sort kickers descending
+        <span class="cov8" title="1">sort.Slice(kickers, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(kickers[i]) &gt; e.rankValue(kickers[j])
+        }</span>)
+
+        <span class="cov8" title="1">value := 1000000 + e.rankValue(pairRank)*1000
+        for i, rank := range kickers </span><span class="cov8" title="1">{
+                if i &lt; 3 </span><span class="cov8" title="1">{ // Only consider top 3 kickers
+                        value += e.rankValue(rank) * (100 / (i + 1))
+                }</span>
+        }
+
+        <span class="cov8" title="1">allKickers := []poker.Rank{pairRank}
+        allKickers = append(allKickers, kickers...)
+
+        return &amp;HandResult{
+                Rank:        OnePair,
+                Description: "One Pair",
+                Value:       value,
+                Cards:       cards,
+                Kickers:     allKickers,
+        }</span>
+}
+
+func (e *HandEvaluator) checkHighCard(cards poker.Cards) *HandResult <span class="cov8" title="1">{
+        // Sort cards by rank descending
+        sortedCards := make(poker.Cards, len(cards))
+        copy(sortedCards, cards)
+        sort.Slice(sortedCards, func(i, j int) bool </span><span class="cov8" title="1">{
+                return e.rankValue(sortedCards[i].Rank) &gt; e.rankValue(sortedCards[j].Rank)
+        }</span>)
+
+        <span class="cov8" title="1">var kickers []poker.Rank
+        for _, card := range sortedCards </span><span class="cov8" title="1">{
+                kickers = append(kickers, card.Rank)
+        }</span>
+
+        <span class="cov8" title="1">value := 0
+        for i, rank := range kickers </span><span class="cov8" title="1">{
+                if i &lt; 5 </span><span class="cov8" title="1">{ // Only consider top 5 cards
+                        value += e.rankValue(rank) * (1000 / (i + 1))
+                }</span>
+        }
+
+        <span class="cov8" title="1">return &amp;HandResult{
+                Rank:        HighCard,
+                Description: "High Card",
+                Value:       value,
+                Cards:       cards,
+                Kickers:     kickers,
+        }</span>
+}
+
+// Helper functions
+func (e *HandEvaluator) isFlush(cards poker.Cards) bool <span class="cov8" title="1">{
+        if len(cards) &lt; 5 </span><span class="cov0" title="0">{
+                return false
+        }</span>
+        <span class="cov8" title="1">suit := cards[0].Suit
+        for _, card := range cards </span><span class="cov8" title="1">{
+                if card.Suit != suit </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+        }
+        <span class="cov8" title="1">return true</span>
+}
+
+func (e *HandEvaluator) isRoyalStraight(cards poker.Cards) bool <span class="cov8" title="1">{
+        ranks := []poker.Rank{poker.RankAce, poker.RankKing, poker.RankQueen, poker.RankJack, poker.RankTen}
+        rankSet := make(map[poker.Rank]bool)
+        for _, card := range cards </span><span class="cov8" title="1">{
+                rankSet[card.Rank] = true
+        }</span>
+        <span class="cov8" title="1">for _, rank := range ranks </span><span class="cov8" title="1">{
+                if !rankSet[rank] </span><span class="cov8" title="1">{
+                        return false
+                }</span>
+        }
+        <span class="cov8" title="1">return true</span>
+}
+
+func (e *HandEvaluator) getStraightHighCard(cards poker.Cards) poker.Rank <span class="cov8" title="1">{
+        if len(cards) &lt; 5 </span><span class="cov0" title="0">{
+                return poker.RankNone
+        }</span>
+
+        <span class="cov8" title="1">ranks := make([]int, 0)
+        rankSet := make(map[int]bool)
+
+        for _, card := range cards </span><span class="cov8" title="1">{
+                rank := e.rankValue(card.Rank)
+                if !rankSet[rank] </span><span class="cov8" title="1">{
+                        ranks = append(ranks, rank)
+                        rankSet[rank] = true
+                }</span>
+        }
+
+        <span class="cov8" title="1">sort.Ints(ranks)
+
+        // Check for regular straight
+        if len(ranks) &gt;= 5 </span><span class="cov8" title="1">{
+                for i := len(ranks) - 5; i &gt;= 0; i-- </span><span class="cov8" title="1">{
+                        if ranks[i+4]-ranks[i] == 4 </span><span class="cov8" title="1">{
+                                return e.valueToRank(ranks[i+4])
+                        }</span>
+                }
+        }
+
+        // Check for A-2-3-4-5 straight (wheel)
+        <span class="cov8" title="1">if rankSet[14] &amp;&amp; rankSet[2] &amp;&amp; rankSet[3] &amp;&amp; rankSet[4] &amp;&amp; rankSet[5] </span><span class="cov8" title="1">{
+                return poker.RankFive // 5-high straight
+        }</span>
+
+        <span class="cov8" title="1">return poker.RankNone</span>
+}
+
+func (e *HandEvaluator) getRankCounts(cards poker.Cards) map[poker.Rank]int <span class="cov8" title="1">{
+        counts := make(map[poker.Rank]int)
+        for _, card := range cards </span><span class="cov8" title="1">{
+                counts[card.Rank]++
+        }</span>
+        <span class="cov8" title="1">return counts</span>
+}
+
+func (e *HandEvaluator) rankValue(rank poker.Rank) int <span class="cov8" title="1">{
+        switch rank </span>{
+        case poker.RankAce:<span class="cov8" title="1">
+                return 14</span>
+        case poker.RankKing:<span class="cov8" title="1">
+                return 13</span>
+        case poker.RankQueen:<span class="cov8" title="1">
+                return 12</span>
+        case poker.RankJack:<span class="cov8" title="1">
+                return 11</span>
+        case poker.RankTen:<span class="cov8" title="1">
+                return 10</span>
+        case poker.RankNine:<span class="cov8" title="1">
+                return 9</span>
+        case poker.RankEight:<span class="cov0" title="0">
+                return 8</span>
+        case poker.RankSeven:<span class="cov0" title="0">
+                return 7</span>
+        case poker.RankSix:<span class="cov0" title="0">
+                return 6</span>
+        case poker.RankFive:<span class="cov8" title="1">
+                return 5</span>
+        case poker.RankFour:<span class="cov8" title="1">
+                return 4</span>
+        case poker.RankThree:<span class="cov8" title="1">
+                return 3</span>
+        case poker.RankTwo:<span class="cov8" title="1">
+                return 2</span>
+        default:<span class="cov0" title="0">
+                return 0</span>
+        }
+}
+
+func (e *HandEvaluator) valueToRank(value int) poker.Rank <span class="cov8" title="1">{
+        switch value </span>{
+        case 14:<span class="cov8" title="1">
+                return poker.RankAce</span>
+        case 13:<span class="cov8" title="1">
+                return poker.RankKing</span>
+        case 12:<span class="cov0" title="0">
+                return poker.RankQueen</span>
+        case 11:<span class="cov0" title="0">
+                return poker.RankJack</span>
+        case 10:<span class="cov0" title="0">
+                return poker.RankTen</span>
+        case 9:<span class="cov0" title="0">
+                return poker.RankNine</span>
+        case 8:<span class="cov0" title="0">
+                return poker.RankEight</span>
+        case 7:<span class="cov0" title="0">
+                return poker.RankSeven</span>
+        case 6:<span class="cov0" title="0">
+                return poker.RankSix</span>
+        case 5:<span class="cov0" title="0">
+                return poker.RankFive</span>
+        case 4:<span class="cov0" title="0">
+                return poker.RankFour</span>
+        case 3:<span class="cov0" title="0">
+                return poker.RankThree</span>
+        case 2:<span class="cov0" title="0">
+                return poker.RankTwo</span>
+        default:<span class="cov0" title="0">
+                return poker.RankNone</span>
+        }
+}
+
+func (e *HandEvaluator) compareKickers(kickers1, kickers2 []poker.Rank) int <span class="cov8" title="1">{
+        maxLen := len(kickers1)
+        if len(kickers2) &gt; maxLen </span><span class="cov0" title="0">{
+                maxLen = len(kickers2)
+        }</span>
+
+        <span class="cov8" title="1">for i := 0; i &lt; maxLen; i++ </span><span class="cov8" title="1">{
+                val1 := 0
+                val2 := 0
+
+                if i &lt; len(kickers1) </span><span class="cov8" title="1">{
+                        val1 = e.rankValue(kickers1[i])
+                }</span>
+                <span class="cov8" title="1">if i &lt; len(kickers2) </span><span class="cov8" title="1">{
+                        val2 = e.rankValue(kickers2[i])
+                }</span>
+
+                <span class="cov8" title="1">if val1 &gt; val2 </span><span class="cov8" title="1">{
+                        return 1
+                }</span>
+                <span class="cov8" title="1">if val1 &lt; val2 </span><span class="cov0" title="0">{
+                        return -1
+                }</span>
+        }
+        <span class="cov8" title="1">return 0</span>
+}
+
+func (e *HandEvaluator) generateCombinations(cards poker.Cards, k int, callback func(poker.Cards)) <span class="cov8" title="1">{
+        n := len(cards)
+        if k &gt; n </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov8" title="1">indices := make([]int, k)
+        for i := range indices </span><span class="cov8" title="1">{
+                indices[i] = i
+        }</span>
+
+        <span class="cov8" title="1">for </span><span class="cov8" title="1">{
+                combination := make(poker.Cards, k)
+                for i, idx := range indices </span><span class="cov8" title="1">{
+                        combination[i] = cards[idx]
+                }</span>
+                <span class="cov8" title="1">callback(combination)
+
+                // Generate next combination
+                i := k - 1
+                for i &gt;= 0 &amp;&amp; indices[i] == n-k+i </span><span class="cov8" title="1">{
+                        i--
+                }</span>
+                <span class="cov8" title="1">if i &lt; 0 </span><span class="cov8" title="1">{
+                        break</span>
+                }
+                <span class="cov8" title="1">indices[i]++
+                for j := i + 1; j &lt; k; j++ </span><span class="cov8" title="1">{
+                        indices[j] = indices[j-1] + 1
+                }</span>
+        }
+}
+
+// HandRankToString converts hand rank to string
+func HandRankToString(rank HandRank) string <span class="cov8" title="1">{
+        switch rank </span>{
+        case HighCard:<span class="cov8" title="1">
+                return "High Card"</span>
+        case OnePair:<span class="cov8" title="1">
+                return "One Pair"</span>
+        case TwoPair:<span class="cov8" title="1">
+                return "Two Pair"</span>
+        case ThreeOfAKind:<span class="cov8" title="1">
+                return "Three of a Kind"</span>
+        case Straight:<span class="cov8" title="1">
+                return "Straight"</span>
+        case Flush:<span class="cov8" title="1">
+                return "Flush"</span>
+        case FullHouse:<span class="cov8" title="1">
+                return "Full House"</span>
+        case FourOfAKind:<span class="cov8" title="1">
+                return "Four of a Kind"</span>
+        case StraightFlush:<span class="cov8" title="1">
+                return "Straight Flush"</span>
+        case RoyalFlush:<span class="cov8" title="1">
+                return "Royal Flush"</span>
+        default:<span class="cov8" title="1">
+                return "Unknown"</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package holdem
+
+import (
+        "fmt"
+        "math/rand"
+        "time"
+
+        "github.com/ljbink/ai-poker/engine/poker"
+)
+
+type GamePhase int
+
+const (
+        PhasePreflop GamePhase = iota
+        PhaseFlop
+        PhaseTurn
+        PhaseRiver
+        PhaseShowdown
+)
+
+type SystemActions struct {
+        Preflop []Action
+        Flop    []Action
+        Turn    []Action
+        River   []Action
+}
+
+type UserActions struct {
+        Preflop []Action
+        Flop    []Action
+        Turn    []Action
+        River   []Action
+}
+
+type IGame interface {
+        GetSmallBlind() int
+        GetBigBlind() int
+
+        GetCurrentPhase() GamePhase
+        SetCurrentPhase(phase GamePhase)
+
+        GetCommunityCards() poker.Cards
+
+        PlayerSit(player IPlayer, sit int) error
+        PlayerLeave(player IPlayer) error
+        GetPlayerByID(id int) (IPlayer, error)
+        GetPlayerBySit(sit int) (IPlayer, error)
+        GetPlayerSitByID(id int) (int, error)
+        GetAllPlayers() []IPlayer
+
+        DealHoleCards() error
+        DealFlop() error
+        DealTurn() error
+        DealRiver() error
+        ShuffleDeck()
+
+        GetCurrentPlayer() IPlayer
+
+        GetSystemActions() SystemActions
+        GetUserActions() UserActions
+
+        TakeAction(action Action) error
+}
+
+type Game struct {
+        players        [10]IPlayer // Players in the game with sitting number
+        deck           poker.Cards // Deck of cards
+        communityCards poker.Cards // Community cards
+        currentPhase   GamePhase   // Current phase of the game
+
+        smallBlind int // Small blind amount
+        bigBlind   int // Big blind amount
+
+        systemActions SystemActions
+        userActions   UserActions
+}
+
+func (g *Game) PlayerSit(player IPlayer, sit int) error <span class="cov8" title="1">{
+        if player == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("player is nil")
+        }</span>
+        <span class="cov8" title="1">if sit &lt; 0 || sit &gt;= len(g.players) </span><span class="cov8" title="1">{
+                return fmt.Errorf("invalid sit number: %d", sit)
+        }</span>
+        <span class="cov8" title="1">if g.players[sit] != nil &amp;&amp; g.players[sit].GetID() != player.GetID() </span><span class="cov8" title="1">{
+                return fmt.Errorf("player already sitting at sit: %d", sit)
+        }</span>
+        <span class="cov8" title="1">g.players[sit] = player
+        return nil</span>
+}
+
+func (g *Game) PlayerLeave(player IPlayer) error <span class="cov8" title="1">{
+        if player == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("player is nil")
+        }</span>
+        <span class="cov8" title="1">for i, p := range g.players </span><span class="cov8" title="1">{
+                if p == player </span><span class="cov8" title="1">{
+                        g.players[i] = nil
+                        break</span>
+                }
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (g *Game) GetSmallBlind() int <span class="cov8" title="1">{
+        return g.smallBlind
+}</span>
+
+func (g *Game) GetBigBlind() int <span class="cov8" title="1">{
+        return g.bigBlind
+}</span>
+
+func (g *Game) GetCurrentPhase() GamePhase <span class="cov8" title="1">{
+        return g.currentPhase
+}</span>
+
+func (g *Game) SetCurrentPhase(phase GamePhase) <span class="cov8" title="1">{
+        oldPhase := g.currentPhase
+        g.currentPhase = phase
+
+        // Log system action for phase change (if it's actually changing)
+        if oldPhase != phase </span><span class="cov8" title="1">{
+                g.TakeSystemAction(Action{
+                        PlayerID: SystemPlayerID,
+                        Type:     ActionSystemPhaseChange,
+                        Amount:   int(phase), // Store the new phase as amount
+                })
+        }</span>
+}
+
+func (g *Game) GetCommunityCards() poker.Cards <span class="cov8" title="1">{
+        return g.communityCards
+}</span>
+
+func (g *Game) GetPlayerByID(id int) (IPlayer, error) <span class="cov8" title="1">{
+        for _, player := range g.players </span><span class="cov8" title="1">{
+                if player != nil &amp;&amp; player.GetID() == id </span><span class="cov8" title="1">{
+                        return player, nil
+                }</span>
+        }
+        <span class="cov8" title="1">return nil, fmt.Errorf("player with ID %d not found", id)</span>
+}
+
+func (g *Game) GetPlayerBySit(sit int) (IPlayer, error) <span class="cov8" title="1">{
+        if sit &lt; 0 || sit &gt;= len(g.players) </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("invalid sit number: %d", sit)
+        }</span>
+        <span class="cov8" title="1">if g.players[sit] == nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("no player at sit %d", sit)
+        }</span>
+        <span class="cov8" title="1">return g.players[sit], nil</span>
+}
+
+func (g *Game) GetPlayerSitByID(id int) (int, error) <span class="cov8" title="1">{
+        for i, player := range g.players </span><span class="cov8" title="1">{
+                if player != nil &amp;&amp; player.GetID() == id </span><span class="cov8" title="1">{
+                        return i, nil
+                }</span>
+        }
+        <span class="cov8" title="1">return -1, fmt.Errorf("player with ID %d not found", id)</span>
+}
+
+func (g *Game) GetAllPlayers() []IPlayer <span class="cov8" title="1">{
+        var players []IPlayer
+        for _, player := range g.players </span><span class="cov8" title="1">{
+                if player != nil </span><span class="cov8" title="1">{
+                        players = append(players, player)
+                }</span>
+        }
+        <span class="cov8" title="1">return players</span>
+}
+
+func (g *Game) GetCurrentPlayer() IPlayer <span class="cov8" title="1">{
+        // Find the first non-nil, non-folded player
+        for _, player := range g.players </span><span class="cov8" title="1">{
+                if player != nil &amp;&amp; !player.IsFolded() </span><span class="cov8" title="1">{
+                        return player
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (g *Game) GetSystemActions() SystemActions <span class="cov8" title="1">{
+        return g.systemActions
+}</span>
+
+func (g *Game) GetUserActions() UserActions <span class="cov8" title="1">{
+        return g.userActions
+}</span>
+
+func (g *Game) TakeAction(action Action) error <span class="cov8" title="1">{
+        // Add action to the appropriate phase log in userActions
+        switch g.currentPhase </span>{
+        case PhasePreflop:<span class="cov8" title="1">
+                g.userActions.Preflop = append(g.userActions.Preflop, action)</span>
+        case PhaseFlop:<span class="cov8" title="1">
+                g.userActions.Flop = append(g.userActions.Flop, action)</span>
+        case PhaseTurn:<span class="cov8" title="1">
+                g.userActions.Turn = append(g.userActions.Turn, action)</span>
+        case PhaseRiver:<span class="cov8" title="1">
+                g.userActions.River = append(g.userActions.River, action)</span>
+        default:<span class="cov8" title="1">
+                return fmt.Errorf("invalid game phase: %d", g.currentPhase)</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+// TakeSystemAction logs system actions (like dealing cards, phase changes)
+func (g *Game) TakeSystemAction(action Action) error <span class="cov8" title="1">{
+        action.PlayerID = SystemPlayerID
+        switch g.currentPhase </span>{
+        case PhasePreflop:<span class="cov8" title="1">
+                g.systemActions.Preflop = append(g.systemActions.Preflop, action)</span>
+        case PhaseFlop:<span class="cov8" title="1">
+                g.systemActions.Flop = append(g.systemActions.Flop, action)</span>
+        case PhaseTurn:<span class="cov8" title="1">
+                g.systemActions.Turn = append(g.systemActions.Turn, action)</span>
+        case PhaseRiver:<span class="cov8" title="1">
+                g.systemActions.River = append(g.systemActions.River, action)</span>
+        default:<span class="cov0" title="0">
+                return fmt.Errorf("invalid game phase: %d", g.currentPhase)</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Card dealing methods
+
+func (g *Game) ShuffleDeck() <span class="cov8" title="1">{
+        // Shuffle existing deck using Fisher-Yates algorithm
+        rand.Seed(time.Now().UnixNano())
+        for i := len(g.deck) - 1; i &gt; 0; i-- </span><span class="cov8" title="1">{
+                j := rand.Intn(i + 1)
+                g.deck[i], g.deck[j] = g.deck[j], g.deck[i]
+        }</span>
+
+        // Log system action for deck shuffle
+        <span class="cov8" title="1">g.TakeSystemAction(Action{
+                PlayerID: SystemPlayerID,
+                Type:     ActionSystemShuffle,
+                Amount:   0,
+        })</span>
+}
+
+// newStandardDeck creates a standard 52-card poker deck (no jokers)
+func newStandardDeck() poker.Cards <span class="cov8" title="1">{
+        suits := []poker.Suit{
+                poker.SuitHeart,
+                poker.SuitDiamond,
+                poker.SuitClub,
+                poker.SuitSpade,
+        }
+        ranks := []poker.Rank{
+                poker.RankAce,
+                poker.RankTwo,
+                poker.RankThree,
+                poker.RankFour,
+                poker.RankFive,
+                poker.RankSix,
+                poker.RankSeven,
+                poker.RankEight,
+                poker.RankNine,
+                poker.RankTen,
+                poker.RankJack,
+                poker.RankQueen,
+                poker.RankKing,
+        }
+        cards := poker.Cards{}
+        for _, suit := range suits </span><span class="cov8" title="1">{
+                for _, rank := range ranks </span><span class="cov8" title="1">{
+                        cards.Append(poker.NewCard(suit, rank))
+                }</span>
+        }
+        <span class="cov8" title="1">return cards</span>
+}
+
+// ResetAndShuffleDeck creates a fresh deck and shuffles it
+func (g *Game) ResetAndShuffleDeck() <span class="cov8" title="1">{
+        // Reset deck to standard 52 cards (no jokers)
+        g.deck = newStandardDeck()
+        g.ShuffleDeck()
+}</span>
+
+func (g *Game) DealHoleCards() error <span class="cov8" title="1">{
+        activePlayers := g.GetAllPlayers()
+        if len(activePlayers) &lt; 2 </span><span class="cov8" title="1">{
+                return fmt.Errorf("need at least 2 players to deal cards")
+        }</span>
+
+        // Reset and shuffle deck before dealing
+        <span class="cov8" title="1">g.ResetAndShuffleDeck()
+
+        // Clear existing cards from players
+        for _, player := range activePlayers </span><span class="cov8" title="1">{
+                player.ResetForNewHand()
+        }</span>
+
+        // Deal 2 cards to each player
+        <span class="cov8" title="1">cardIndex := 0
+        for round := 0; round &lt; 2; round++ </span><span class="cov8" title="1">{
+                for _, player := range activePlayers </span><span class="cov8" title="1">{
+                        if !player.IsFolded() &amp;&amp; cardIndex &lt; len(g.deck) </span><span class="cov8" title="1">{
+                                player.DealCard(g.deck[cardIndex])
+                                cardIndex++
+                        }</span>
+                }
+        }
+
+        // Remove dealt cards from deck
+        <span class="cov8" title="1">g.deck = g.deck[cardIndex:]
+
+        // Log system action for dealing hole cards
+        g.TakeSystemAction(Action{
+                PlayerID: SystemPlayerID,
+                Type:     ActionSystemDealHole,
+                Amount:   len(activePlayers) * 2, // Number of cards dealt
+        })
+
+        return nil</span>
+}
+
+func (g *Game) DealFlop() error <span class="cov8" title="1">{
+        if len(g.deck) &lt; 4 </span><span class="cov0" title="0">{
+                return fmt.Errorf("not enough cards in deck for flop")
+        }</span>
+
+        // Burn one card, then deal 3 community cards
+        <span class="cov8" title="1">g.deck = g.deck[1:] // Burn card
+
+        // Deal 3 cards to community
+        for i := 0; i &lt; 3; i++ </span><span class="cov8" title="1">{
+                g.communityCards = append(g.communityCards, g.deck[i])
+        }</span>
+        <span class="cov8" title="1">g.deck = g.deck[3:]
+
+        g.currentPhase = PhaseFlop
+
+        // Log system action for dealing flop
+        g.TakeSystemAction(Action{
+                PlayerID: SystemPlayerID,
+                Type:     ActionSystemDealFlop,
+                Amount:   3, // Number of community cards dealt
+        })
+
+        return nil</span>
+}
+
+func (g *Game) DealTurn() error <span class="cov8" title="1">{
+        if len(g.deck) &lt; 2 </span><span class="cov0" title="0">{
+                return fmt.Errorf("not enough cards in deck for turn")
+        }</span>
+
+        // Burn one card, then deal 1 community card
+        <span class="cov8" title="1">g.deck = g.deck[1:] // Burn card
+
+        g.communityCards = append(g.communityCards, g.deck[0])
+        g.deck = g.deck[1:]
+
+        g.currentPhase = PhaseTurn
+
+        // Log system action for dealing turn
+        g.TakeSystemAction(Action{
+                PlayerID: SystemPlayerID,
+                Type:     ActionSystemDealTurn,
+                Amount:   1, // Number of community cards dealt
+        })
+
+        return nil</span>
+}
+
+func (g *Game) DealRiver() error <span class="cov8" title="1">{
+        if len(g.deck) &lt; 2 </span><span class="cov0" title="0">{
+                return fmt.Errorf("not enough cards in deck for river")
+        }</span>
+
+        // Burn one card, then deal 1 community card
+        <span class="cov8" title="1">g.deck = g.deck[1:] // Burn card
+
+        g.communityCards = append(g.communityCards, g.deck[0])
+        g.deck = g.deck[1:]
+
+        g.currentPhase = PhaseRiver
+
+        // Log system action for dealing river
+        g.TakeSystemAction(Action{
+                PlayerID: SystemPlayerID,
+                Type:     ActionSystemDealRiver,
+                Amount:   1, // Number of community cards dealt
+        })
+
+        return nil</span>
+}
+
+// NewGame creates a new game with specified blinds
+func NewGame(smallBlind, bigBlind int) *Game <span class="cov8" title="1">{
+        game := &amp;Game{
+                players:        [10]IPlayer{},
+                deck:           newStandardDeck(), // Use standard 52-card deck
+                communityCards: poker.Cards{},
+                currentPhase:   PhasePreflop,
+                smallBlind:     smallBlind,
+                bigBlind:       bigBlind,
+                systemActions: SystemActions{
+                        Preflop: []Action{},
+                        Flop:    []Action{},
+                        Turn:    []Action{},
+                        River:   []Action{},
+                },
+                userActions: UserActions{
+                        Preflop: []Action{},
+                        Flop:    []Action{},
+                        Turn:    []Action{},
+                        River:   []Action{},
+                },
+        }
+
+        // Shuffle deck on creation (without logging since it's initialization)
+        rand.Seed(time.Now().UnixNano())
+        for i := len(game.deck) - 1; i &gt; 0; i-- </span><span class="cov8" title="1">{
+                j := rand.Intn(i + 1)
+                game.deck[i], game.deck[j] = game.deck[j], game.deck[i]
+        }</span>
+
+        <span class="cov8" title="1">return game</span>
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package holdem
+
+import "github.com/ljbink/ai-poker/engine/poker"
+
+type IPlayer interface {
+        GetID() int
+        GetName() string
+
+        DealCard(card *poker.Card) IPlayer
+        GetHandCards() []*poker.Card
+
+        GrandChips(amount int) IPlayer
+        GetChips() int
+
+        GetBet() int
+        GetTotalBet() int
+        Bet(amount int) IPlayer
+        ResetBet() IPlayer
+
+        IsFolded() bool
+        Fold() IPlayer
+
+        ResetForNewHand() IPlayer
+}
+
+type Player struct {
+        poker.BasePlayer
+        cards    []*poker.Card
+        chips    int
+        bet      int
+        totalBet int
+        folded   bool
+}
+
+func NewPlayer(id int, name string, startingChips int) IPlayer <span class="cov8" title="1">{
+        return &amp;Player{
+                BasePlayer: poker.BasePlayer{ID: id, Name: name},
+                cards:      make([]*poker.Card, 0),
+                chips:      startingChips,
+        }
+}</span>
+
+func (p *Player) DealCard(card *poker.Card) IPlayer <span class="cov8" title="1">{
+        p.cards = append(p.cards, card)
+        return p
+}</span>
+
+func (p *Player) GetHandCards() []*poker.Card <span class="cov8" title="1">{
+        return p.cards
+}</span>
+
+func (p *Player) GetChips() int <span class="cov8" title="1">{
+        return p.chips
+}</span>
+
+func (p *Player) GetBet() int <span class="cov8" title="1">{
+        return p.bet
+}</span>
+
+func (p *Player) GetTotalBet() int <span class="cov8" title="1">{
+        return p.totalBet
+}</span>
+
+func (p *Player) GetID() int <span class="cov8" title="1">{
+        return p.ID
+}</span>
+
+func (p *Player) GetName() string <span class="cov8" title="1">{
+        return p.Name
+}</span>
+
+func (p *Player) IsFolded() bool <span class="cov8" title="1">{
+        return p.folded
+}</span>
+
+func (p *Player) Fold() IPlayer <span class="cov8" title="1">{
+        p.folded = true
+        return p
+}</span>
+
+func (p *Player) GrandChips(amount int) IPlayer <span class="cov8" title="1">{
+        p.chips += amount
+        return p
+}</span>
+
+func (p *Player) Bet(amount int) IPlayer <span class="cov8" title="1">{
+        p.bet += amount
+        p.totalBet += amount
+        p.chips -= amount
+        return p
+}</span>
+
+func (p *Player) ResetBet() IPlayer <span class="cov8" title="1">{
+        p.bet = 0
+        return p
+}</span>
+
+func (p *Player) ResetForNewHand() IPlayer <span class="cov8" title="1">{
+        p.cards = nil
+        p.bet = 0
+        p.totalBet = 0
+        p.folded = false
+        return p
+}</span>
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package holdem
+
+import (
+        "fmt"
+)
+
+// ValidationError represents an action validation error
+type ValidationError struct {
+        Message string
+        Code    ValidationErrorCode
+}
+
+func (e *ValidationError) Error() string <span class="cov8" title="1">{
+        return e.Message
+}</span>
+
+// ValidationErrorCode represents different types of validation errors
+type ValidationErrorCode int
+
+const (
+        ErrorInvalidPlayer ValidationErrorCode = iota
+        ErrorInvalidAction
+        ErrorInsufficientChips
+        ErrorInvalidAmount
+        ErrorOutOfTurn
+        ErrorGameState
+        ErrorActionNotAllowed
+)
+
+type IActionValidator interface {
+        ValidateAction(game *Game, player IPlayer, action Action) *ValidationError
+        GetAvailableActions(game *Game, player IPlayer) []ActionType
+        GetMinRaiseAmount(game *Game, player IPlayer) int
+        GetMaxRaiseAmount(game *Game, player IPlayer) int
+}
+
+// ActionValidator provides methods for validating poker actions
+type ActionValidator struct{}
+
+// NewActionValidator creates a new action validator
+func NewActionValidator() *ActionValidator <span class="cov8" title="1">{
+        return &amp;ActionValidator{}
+}</span>
+
+// ValidateAction validates if an action is legal in the current game state
+func (v *ActionValidator) ValidateAction(game *Game, player IPlayer, action Action) *ValidationError <span class="cov8" title="1">{
+        // Basic validations
+        if err := v.validateBasicAction(action); err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := v.validatePlayer(game, player, action.PlayerID); err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := v.validateGameState(game); err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := v.validatePlayerTurn(game, player); err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        // Action-specific validations
+        <span class="cov8" title="1">switch action.Type </span>{
+        case ActionFold:<span class="cov8" title="1">
+                return v.validateFold(game, player, action)</span>
+        case ActionCheck:<span class="cov8" title="1">
+                return v.validateCheck(game, player, action)</span>
+        case ActionCall:<span class="cov8" title="1">
+                return v.validateCall(game, player, action)</span>
+        case ActionRaise:<span class="cov8" title="1">
+                return v.validateRaise(game, player, action)</span>
+        case ActionAllIn:<span class="cov8" title="1">
+                return v.validateAllIn(game, player, action)</span>
+        default:<span class="cov8" title="1">
+                return &amp;ValidationError{
+                        Message: fmt.Sprintf("Unknown action type: %d", action.Type),
+                        Code:    ErrorInvalidAction,
+                }</span>
+        }
+}
+
+// GetAvailableActions returns all valid actions for a player in current game state
+func (v *ActionValidator) GetAvailableActions(game *Game, player IPlayer) []ActionType <span class="cov8" title="1">{
+        var actions []ActionType
+
+        // Basic validations
+        if game == nil || player == nil </span><span class="cov8" title="1">{
+                return actions
+        }</span>
+
+        <span class="cov8" title="1">if player.IsFolded() </span><span class="cov8" title="1">{
+                return actions // No actions available for folded players
+        }</span>
+
+        <span class="cov8" title="1">currentBet := v.getCurrentBet(game)
+        playerBet := player.GetBet()
+        callAmount := currentBet - playerBet
+
+        // Ensure call amount is not negative
+        if callAmount &lt; 0 </span><span class="cov0" title="0">{
+                callAmount = 0
+        }</span>
+
+        // Always can fold (unless already folded)
+        <span class="cov8" title="1">actions = append(actions, ActionFold)
+
+        // Check if player can check
+        if callAmount == 0 </span><span class="cov8" title="1">{
+                actions = append(actions, ActionCheck)
+        }</span>
+
+        // Check if player can call
+        <span class="cov8" title="1">if callAmount &gt; 0 &amp;&amp; player.GetChips() &gt;= callAmount </span><span class="cov8" title="1">{
+                actions = append(actions, ActionCall)
+        }</span>
+
+        // Check if player can raise
+        <span class="cov8" title="1">if v.canPlayerRaise(game, player) </span><span class="cov8" title="1">{
+                actions = append(actions, ActionRaise)
+        }</span>
+
+        // Check if player can go all-in
+        <span class="cov8" title="1">if player.GetChips() &gt; 0 </span><span class="cov8" title="1">{
+                actions = append(actions, ActionAllIn)
+        }</span>
+
+        <span class="cov8" title="1">return actions</span>
+}
+
+// GetMinRaiseAmount returns the minimum raise amount for a player
+func (v *ActionValidator) GetMinRaiseAmount(game *Game, player IPlayer) int <span class="cov8" title="1">{
+        if game == nil || player == nil </span><span class="cov8" title="1">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">currentBet := v.getCurrentBet(game)
+        playerBet := player.GetBet()
+        callAmount := currentBet - playerBet
+
+        if callAmount &lt; 0 </span><span class="cov8" title="1">{
+                callAmount = 0
+        }</span>
+
+        // Minimum raise is typically the big blind
+        <span class="cov8" title="1">minRaise := game.GetBigBlind()
+
+        // If there's already a bet, minimum raise is the difference between current bet and previous bet
+        if currentBet &gt; 0 </span><span class="cov8" title="1">{
+                // Find the previous bet amount to calculate minimum raise
+                actions := v.getCurrentPhaseActions(game)
+                prevBet := 0
+                for _, action := range actions </span><span class="cov8" title="1">{
+                        if action.Type == ActionRaise &amp;&amp; action.Amount &lt; currentBet </span><span class="cov0" title="0">{
+                                prevBet = action.Amount
+                        }</span>
+                }
+                <span class="cov8" title="1">if prevBet &gt; 0 </span><span class="cov0" title="0">{
+                        minRaise = currentBet - prevBet
+                }</span>
+        }
+
+        <span class="cov8" title="1">return callAmount + minRaise</span>
+}
+
+// GetMaxRaiseAmount returns the maximum raise amount for a player (all-in)
+func (v *ActionValidator) GetMaxRaiseAmount(game *Game, player IPlayer) int <span class="cov8" title="1">{
+        if game == nil || player == nil </span><span class="cov8" title="1">{
+                return 0
+        }</span>
+
+        <span class="cov8" title="1">return player.GetChips()</span>
+}
+
+// Basic validation functions
+func (v *ActionValidator) validateBasicAction(action Action) *ValidationError <span class="cov8" title="1">{
+        if action.PlayerID &lt;= 0 </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Invalid player ID",
+                        Code:    ErrorInvalidPlayer,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if action.Amount &lt; 0 </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Action amount cannot be negative",
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validatePlayer(game *Game, player IPlayer, actionPlayerID int) *ValidationError <span class="cov8" title="1">{
+        if player == nil </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Player is nil",
+                        Code:    ErrorInvalidPlayer,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if player.GetID() != actionPlayerID </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Player ID mismatch",
+                        Code:    ErrorInvalidPlayer,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if player.IsFolded() </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: "Player has already folded",
+                        Code:    ErrorActionNotAllowed,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validateGameState(game *Game) *ValidationError <span class="cov8" title="1">{
+        if game == nil </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Game is nil",
+                        Code:    ErrorGameState,
+                }
+        }</span>
+
+        // Check if game is in a valid phase for actions
+        <span class="cov8" title="1">phase := game.GetCurrentPhase()
+        if phase == PhaseShowdown </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: "No actions allowed during showdown",
+                        Code:    ErrorGameState,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validatePlayerTurn(game *Game, player IPlayer) *ValidationError <span class="cov8" title="1">{
+        currentPlayer := game.GetCurrentPlayer()
+        if currentPlayer == nil </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: "No current player",
+                        Code:    ErrorOutOfTurn,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if currentPlayer.GetID() != player.GetID() </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Not player's turn",
+                        Code:    ErrorOutOfTurn,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Action-specific validation functions
+func (v *ActionValidator) validateFold(game *Game, player IPlayer, action Action) *ValidationError <span class="cov8" title="1">{
+        if action.Amount != 0 </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Fold action should have amount 0",
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validateCheck(game *Game, player IPlayer, action Action) *ValidationError <span class="cov8" title="1">{
+        if action.Amount != 0 </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Check action should have amount 0",
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">currentBet := v.getCurrentBet(game)
+        playerBet := player.GetBet()
+
+        if currentBet &gt; playerBet </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Cannot check when there is a bet to call",
+                        Code:    ErrorActionNotAllowed,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validateCall(game *Game, player IPlayer, action Action) *ValidationError <span class="cov8" title="1">{
+        currentBet := v.getCurrentBet(game)
+        playerBet := player.GetBet()
+        callAmount := currentBet - playerBet
+
+        if callAmount &lt;= 0 </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: "No bet to call",
+                        Code:    ErrorActionNotAllowed,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if action.Amount != callAmount </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: fmt.Sprintf("Call amount should be %d, got %d", callAmount, action.Amount),
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if player.GetChips() &lt; callAmount </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Insufficient chips to call",
+                        Code:    ErrorInsufficientChips,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validateRaise(game *Game, player IPlayer, action Action) *ValidationError <span class="cov8" title="1">{
+        if action.Amount &lt;= 0 </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: "Raise amount must be positive",
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">currentBet := v.getCurrentBet(game)
+        playerBet := player.GetBet()
+        callAmount := currentBet - playerBet
+
+        if callAmount &lt; 0 </span><span class="cov8" title="1">{
+                callAmount = 0
+        }</span>
+
+        <span class="cov8" title="1">totalRequired := callAmount + action.Amount
+
+        if player.GetChips() &lt; totalRequired </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: "Insufficient chips to raise",
+                        Code:    ErrorInsufficientChips,
+                }
+        }</span>
+
+        <span class="cov8" title="1">minRaise := v.GetMinRaiseAmount(game, player)
+        if totalRequired &lt; minRaise </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: fmt.Sprintf("Raise amount too small. Minimum: %d, got: %d", minRaise, totalRequired),
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (v *ActionValidator) validateAllIn(game *Game, player IPlayer, action Action) *ValidationError <span class="cov8" title="1">{
+        if action.Amount != player.GetChips() </span><span class="cov8" title="1">{
+                return &amp;ValidationError{
+                        Message: fmt.Sprintf("All-in amount should be %d (all chips), got %d", player.GetChips(), action.Amount),
+                        Code:    ErrorInvalidAmount,
+                }
+        }</span>
+
+        <span class="cov8" title="1">if player.GetChips() &lt;= 0 </span><span class="cov0" title="0">{
+                return &amp;ValidationError{
+                        Message: "Player has no chips to go all-in",
+                        Code:    ErrorInsufficientChips,
+                }
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// Helper functions
+func (v *ActionValidator) getCurrentBet(game *Game) int <span class="cov8" title="1">{
+        actions := v.getCurrentPhaseActions(game)
+        maxBet := 0
+
+        for _, action := range actions </span><span class="cov8" title="1">{
+                if action.Type == ActionRaise || action.Type == ActionCall </span><span class="cov8" title="1">{
+                        if action.Amount &gt; maxBet </span><span class="cov8" title="1">{
+                                maxBet = action.Amount
+                        }</span>
+                }
+        }
+
+        <span class="cov8" title="1">return maxBet</span>
+}
+
+func (v *ActionValidator) getCurrentPhaseActions(game *Game) []Action <span class="cov8" title="1">{
+        userActions := game.GetUserActions()
+
+        switch game.GetCurrentPhase() </span>{
+        case PhasePreflop:<span class="cov8" title="1">
+                return userActions.Preflop</span>
+        case PhaseFlop:<span class="cov0" title="0">
+                return userActions.Flop</span>
+        case PhaseTurn:<span class="cov0" title="0">
+                return userActions.Turn</span>
+        case PhaseRiver:<span class="cov0" title="0">
+                return userActions.River</span>
+        default:<span class="cov0" title="0">
+                return []Action{}</span>
+        }
+}
+
+func (v *ActionValidator) canPlayerRaise(game *Game, player IPlayer) bool <span class="cov8" title="1">{
+        currentBet := v.getCurrentBet(game)
+        playerBet := player.GetBet()
+        callAmount := currentBet - playerBet
+
+        if callAmount &lt; 0 </span><span class="cov0" title="0">{
+                callAmount = 0
+        }</span>
+
+        <span class="cov8" title="1">minRaise := v.GetMinRaiseAmount(game, player)
+        return player.GetChips() &gt;= minRaise</span>
+}
+
+// Utility functions for external use
+
+// IsValidActionType checks if an action type is valid
+func IsValidActionType(actionType ActionType) bool <span class="cov8" title="1">{
+        switch actionType </span>{
+        case ActionFold, ActionCheck, ActionCall, ActionRaise, ActionAllIn:<span class="cov8" title="1">
+                return true</span>
+        case ActionSystemShuffle, ActionSystemDealHole, ActionSystemDealFlop, ActionSystemDealTurn, ActionSystemDealRiver, ActionSystemPhaseChange:<span class="cov8" title="1">
+                return true</span>
+        default:<span class="cov8" title="1">
+                return false</span>
+        }
+}
+
+// ActionTypeToString converts action type to string
+func ActionTypeToString(actionType ActionType) string <span class="cov8" title="1">{
+        switch actionType </span>{
+        case ActionFold:<span class="cov8" title="1">
+                return "Fold"</span>
+        case ActionCheck:<span class="cov8" title="1">
+                return "Check"</span>
+        case ActionCall:<span class="cov8" title="1">
+                return "Call"</span>
+        case ActionRaise:<span class="cov8" title="1">
+                return "Raise"</span>
+        case ActionAllIn:<span class="cov8" title="1">
+                return "All-In"</span>
+        case ActionSystemShuffle:<span class="cov8" title="1">
+                return "System: Shuffle"</span>
+        case ActionSystemDealHole:<span class="cov8" title="1">
+                return "System: Deal Hole Cards"</span>
+        case ActionSystemDealFlop:<span class="cov8" title="1">
+                return "System: Deal Flop"</span>
+        case ActionSystemDealTurn:<span class="cov8" title="1">
+                return "System: Deal Turn"</span>
+        case ActionSystemDealRiver:<span class="cov8" title="1">
+                return "System: Deal River"</span>
+        case ActionSystemPhaseChange:<span class="cov8" title="1">
+                return "System: Phase Change"</span>
+        default:<span class="cov8" title="1">
+                return "Unknown"</span>
+        }
+}
+
+// ValidationErrorCodeToString converts validation error code to string
+func ValidationErrorCodeToString(code ValidationErrorCode) string <span class="cov8" title="1">{
+        switch code </span>{
+        case ErrorInvalidPlayer:<span class="cov8" title="1">
+                return "Invalid Player"</span>
+        case ErrorInvalidAction:<span class="cov8" title="1">
+                return "Invalid Action"</span>
+        case ErrorInsufficientChips:<span class="cov8" title="1">
+                return "Insufficient Chips"</span>
+        case ErrorInvalidAmount:<span class="cov8" title="1">
+                return "Invalid Amount"</span>
+        case ErrorOutOfTurn:<span class="cov8" title="1">
+                return "Out of Turn"</span>
+        case ErrorGameState:<span class="cov8" title="1">
+                return "Game State"</span>
+        case ErrorActionNotAllowed:<span class="cov8" title="1">
+                return "Action Not Allowed"</span>
+        default:<span class="cov8" title="1">
+                return "Unknown"</span>
+        }
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

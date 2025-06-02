@@ -28,6 +28,3 @@ go.work.sum
 
 # Log files
 *.log
-
-ai-poker
-poker

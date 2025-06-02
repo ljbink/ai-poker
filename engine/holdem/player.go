@@ -35,6 +35,7 @@ type Player struct {
 func NewPlayer(id int, name string, startingChips int) IPlayer {
 	return &Player{
 		BasePlayer: poker.BasePlayer{ID: id, Name: name},
+		cards:      make([]*poker.Card, 0),
 		chips:      startingChips,
 	}
 }

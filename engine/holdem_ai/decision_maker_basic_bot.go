@@ -8,121 +8,398 @@ import (
 	"github.com/ljbink/ai-poker/engine/poker"
 )
 
-// BasicBotDecisionMaker implements a simple poker bot with basic strategy
 type BasicBotDecisionMaker struct {
-	player    holdem.IPlayer
-	game      *holdem.Game
-	validator *ActionValidator
-	rng       *rand.Rand
+	Aggressiveness float64                 // 0.0 = very conservative, 1.0 = very aggressive
+	BluffFrequency float64                 // 0.0 = never bluff, 1.0 = always bluff
+	evaluator      holdem.IHandEvaluator   // Hand evaluator for strength calculation
+	validator      holdem.IActionValidator // Action validator for legal moves
 }
 
-// NewBasicBotDecisionMaker creates a new basic bot bound to a specific player and game
-func NewBasicBotDecisionMaker(player holdem.IPlayer, game *holdem.Game) DecisionMaker {
+// NewBasicBotDecisionMaker creates a new basic bot with specified traits
+func NewBasicBotDecisionMaker(aggressiveness, bluffFrequency float64) *BasicBotDecisionMaker {
 	return &BasicBotDecisionMaker{
-		player:    player,
-		game:      game,
-		validator: NewActionValidator(),
-		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
+		Aggressiveness: aggressiveness,
+		BluffFrequency: bluffFrequency,
+		evaluator:      holdem.NewHandEvaluator(),
+		validator:      holdem.NewActionValidator(),
 	}
 }
 
-// MakeDecision returns a channel that will receive the chosen action
-func (b *BasicBotDecisionMaker) MakeDecision() <-chan Action {
-	resultChan := make(chan Action, 1)
+// MakeDecision implements the IDecisionMaker interface
+func (d *BasicBotDecisionMaker) MakeDecision(game *holdem.Game, player holdem.IPlayer) <-chan holdem.Action {
+	ch := make(chan holdem.Action, 1)
 
 	go func() {
-		// Simulate thinking time for more realistic behavior
-		thinkingTime := time.Duration(100+b.rng.Intn(500)) * time.Millisecond
+		defer close(ch)
+
+		// Add realistic thinking time
+		thinkingTime := time.Duration(500+rand.Intn(1500)) * time.Millisecond
 		time.Sleep(thinkingTime)
 
-		// Get valid actions
-		validActions := b.validator.GetValidActions(b.game, b.player)
-
-		// Calculate hand strength
-		handStrength := b.evaluateHandStrength()
-
-		// Make decision based on hand strength and game situation
-		action := b.chooseAction(validActions, handStrength)
-
-		resultChan <- action
-		close(resultChan)
+		action := d.calculateBestAction(game, player)
+		ch <- action
 	}()
 
-	return resultChan
+	return ch
 }
 
-// evaluateHandStrength evaluates the strength of the current hand
-func (b *BasicBotDecisionMaker) evaluateHandStrength() float64 {
-	playerCards := b.player.GetHandCards()
-	if len(playerCards) != 2 {
-		return 0.0 // No cards yet
+// calculateBestAction determines the best action based on hand strength, game state, and bot personality
+func (d *BasicBotDecisionMaker) calculateBestAction(game *holdem.Game, player holdem.IPlayer) holdem.Action {
+	// Handle nil inputs gracefully
+	if game == nil || player == nil {
+		return holdem.Action{
+			PlayerID: 0,
+			Type:     holdem.ActionFold,
+			Amount:   0,
+		}
 	}
 
-	// Basic hand strength evaluation
-	strength := 0.0
+	// Get available actions from validator
+	availableActions := d.validator.GetAvailableActions(game, player)
 
-	// Check for pocket pairs
-	if playerCards[0].Rank == playerCards[1].Rank {
-		pairRank := playerCards[0].Rank
+	// If no actions available, fold by default
+	if len(availableActions) == 0 {
+		return holdem.Action{
+			PlayerID: player.GetID(),
+			Type:     holdem.ActionFold,
+			Amount:   0,
+		}
+	}
+
+	// Check if player is properly seated - if not, fold
+	currentPlayer := game.GetCurrentPlayer()
+	if currentPlayer == nil || currentPlayer.GetID() != player.GetID() {
+		// Player is not the current player or not properly seated, should fold
+		if d.isActionAvailable(holdem.ActionFold, availableActions) {
+			return holdem.Action{
+				PlayerID: player.GetID(),
+				Type:     holdem.ActionFold,
+				Amount:   0,
+			}
+		}
+	}
+
+	// Evaluate hand strength
+	handStrength := d.evaluateHandStrength(game, player)
+
+	// Get betting information
+	minRaise := d.validator.GetMinRaiseAmount(game, player)
+	maxRaise := d.validator.GetMaxRaiseAmount(game, player)
+
+	// Make decision based on hand strength and available actions
+	return d.makeDecisionBasedOnStrength(game, player, handStrength, availableActions, minRaise, maxRaise)
+}
+
+// evaluateHandStrength calculates the strength of the current hand (0.0 to 1.0)
+func (d *BasicBotDecisionMaker) evaluateHandStrength(game *holdem.Game, player holdem.IPlayer) float64 {
+	holeCards := player.GetHandCards()
+	communityCards := game.GetCommunityCards()
+
+	if len(holeCards) < 2 {
+		return 0.0
+	}
+
+	// Evaluate current hand
+	handResult := d.evaluator.EvaluateHand(holeCards, communityCards)
+
+	// Convert hand rank to strength percentage
+	baseStrength := d.handRankToStrength(handResult.Rank)
+
+	// Adjust for community cards and position
+	adjustedStrength := d.adjustStrengthForGameState(baseStrength, game, player, handResult)
+
+	return minFloat64(adjustedStrength, 1.0)
+}
+
+// handRankToStrength converts hand rank to base strength value
+func (d *BasicBotDecisionMaker) handRankToStrength(rank holdem.HandRank) float64 {
+	switch rank {
+	case holdem.RoyalFlush:
+		return 1.0
+	case holdem.StraightFlush:
+		return 0.95
+	case holdem.FourOfAKind:
+		return 0.9
+	case holdem.FullHouse:
+		return 0.85
+	case holdem.Flush:
+		return 0.75
+	case holdem.Straight:
+		return 0.65
+	case holdem.ThreeOfAKind:
+		return 0.55
+	case holdem.TwoPair:
+		return 0.45
+	case holdem.OnePair:
+		return 0.3
+	case holdem.HighCard:
+		return 0.1
+	default:
+		return 0.0
+	}
+}
+
+// adjustStrengthForGameState modifies hand strength based on game context
+func (d *BasicBotDecisionMaker) adjustStrengthForGameState(baseStrength float64, game *holdem.Game, player holdem.IPlayer, handResult *holdem.HandResult) float64 {
+	adjustment := 0.0
+
+	// Phase adjustments
+	switch game.GetCurrentPhase() {
+	case holdem.PhasePreflop:
+		// Pre-flop: focus on hole card quality
+		adjustment += d.evaluatePreflop(player.GetHandCards())
+	case holdem.PhaseFlop, holdem.PhaseTurn, holdem.PhaseRiver:
+		// Post-flop: consider draws and hand development
+		adjustment += d.evaluatePostFlop(handResult, game.GetCommunityCards())
+	}
+
+	// Position adjustment (simple implementation)
+	activePlayers := d.countActivePlayers(game)
+	if activePlayers <= 3 {
+		adjustment += 0.1 // Bonus for short-handed play
+	}
+
+	return baseStrength + adjustment
+}
+
+// evaluatePreflop evaluates hole cards for pre-flop strength
+func (d *BasicBotDecisionMaker) evaluatePreflop(holeCards []*poker.Card) float64 {
+	if len(holeCards) < 2 {
+		return 0.0
+	}
+
+	card1, card2 := holeCards[0], holeCards[1]
+	rank1 := d.rankToValue(card1.Rank)
+	rank2 := d.rankToValue(card2.Rank)
+
+	// Pocket pairs bonus
+	if rank1 == rank2 {
 		switch {
-		case pairRank == poker.RankAce: // Pocket Aces
-			strength = 0.95
-		case pairRank >= poker.RankJack: // JJ, QQ, KK
-			strength = 0.9
-		case pairRank >= poker.RankEight: // 88, 99, TT
-			strength = 0.7
-		default: // Low pairs
-			strength = 0.5
+		case rank1 >= 13: // AA, KK
+			return 0.4
+		case rank1 >= 10: // QQ, JJ, TT
+			return 0.3
+		case rank1 >= 7: // 99, 88, 77
+			return 0.2
+		default:
+			return 0.1
+		}
+	}
+
+	// High cards and suited connectors
+	highRank := maxInt(rank1, rank2)
+	lowRank := minInt(rank1, rank2)
+	suited := card1.Suit == card2.Suit
+	connected := abs(highRank-lowRank) == 1
+
+	adjustment := 0.0
+
+	// High card bonus
+	if highRank >= 12 { // A, K
+		adjustment += 0.15
+	} else if highRank >= 10 { // Q, J
+		adjustment += 0.1
+	}
+
+	// Suited bonus
+	if suited {
+		adjustment += 0.05
+	}
+
+	// Connected bonus
+	if connected {
+		adjustment += 0.03
+	}
+
+	return adjustment
+}
+
+// evaluatePostFlop evaluates hand development after the flop
+func (d *BasicBotDecisionMaker) evaluatePostFlop(handResult *holdem.HandResult, communityCards poker.Cards) float64 {
+	adjustment := 0.0
+
+	// Bonus for made hands vs draws
+	if handResult.Rank >= holdem.OnePair {
+		adjustment += 0.05
+	}
+
+	// Additional bonus for strong made hands
+	if handResult.Rank >= holdem.ThreeOfAKind {
+		adjustment += 0.1
+	}
+
+	return adjustment
+}
+
+// makeDecisionBasedOnStrength chooses action based on hand strength and personality
+func (d *BasicBotDecisionMaker) makeDecisionBasedOnStrength(game *holdem.Game, player holdem.IPlayer, handStrength float64, availableActions []holdem.ActionType, minRaise, maxRaise int) holdem.Action {
+	// Adjust thresholds based on aggressiveness
+	foldThreshold := 0.25 - (d.Aggressiveness * 0.1)
+	callThreshold := 0.5 - (d.Aggressiveness * 0.15)
+	raiseThreshold := 0.7 - (d.Aggressiveness * 0.2)
+
+	// Default action
+	action := holdem.Action{
+		PlayerID: player.GetID(),
+		Type:     holdem.ActionFold,
+		Amount:   0,
+	}
+
+	// Decision logic
+	if handStrength < foldThreshold {
+		// Weak hand - fold if possible
+		if d.isActionAvailable(holdem.ActionFold, availableActions) {
+			action.Type = holdem.ActionFold
+		} else if d.isActionAvailable(holdem.ActionCheck, availableActions) {
+			action.Type = holdem.ActionCheck
+		}
+	} else if handStrength < callThreshold {
+		// Marginal hand - check/call or bluff
+		if d.shouldBluff(handStrength) && d.isActionAvailable(holdem.ActionRaise, availableActions) {
+			// Bluff bet
+			action.Type = holdem.ActionRaise
+			action.Amount = d.calculateBluffAmount(game, player, minRaise)
+		} else if d.isActionAvailable(holdem.ActionCall, availableActions) {
+			action.Type = holdem.ActionCall
+			action.Amount = d.calculateCallAmount(game, player)
+		} else if d.isActionAvailable(holdem.ActionCheck, availableActions) {
+			action.Type = holdem.ActionCheck
+		}
+	} else if handStrength < raiseThreshold {
+		// Good hand - bet for value or call
+		if d.isActionAvailable(holdem.ActionRaise, availableActions) && rand.Float64() < (0.5+d.Aggressiveness*0.3) {
+			action.Type = holdem.ActionRaise
+			action.Amount = d.calculateValueBetAmount(game, player, handStrength, minRaise)
+		} else if d.isActionAvailable(holdem.ActionCall, availableActions) {
+			action.Type = holdem.ActionCall
+			action.Amount = d.calculateCallAmount(game, player)
+		} else if d.isActionAvailable(holdem.ActionCheck, availableActions) {
+			action.Type = holdem.ActionCheck
 		}
 	} else {
-		// Non-pair hands - convert ranks for comparison (Ace high)
-		rank1 := b.convertRankForComparison(playerCards[0].Rank)
-		rank2 := b.convertRankForComparison(playerCards[1].Rank)
-
-		highRank := rank1
-		lowRank := rank2
-		if rank2 > rank1 {
-			highRank = rank2
-			lowRank = rank1
-		}
-
-		// Premium hands
-		if (highRank == 14 && lowRank >= 13) || // AK, AQ
-			(highRank == 13 && lowRank == 12) { // KQ
-			strength = 0.8
-		} else if highRank >= 11 { // Any hand with J, Q, K, A
-			strength = 0.6
-		} else if highRank >= 8 { // Medium cards
-			strength = 0.4
-		} else {
-			strength = 0.2
-		}
-
-		// Suited bonus
-		if playerCards[0].Suit == playerCards[1].Suit {
-			strength += 0.1
-		}
-
-		// Connected bonus (for straights)
-		if abs(highRank-lowRank) == 1 {
-			strength += 0.05
+		// Strong hand - raise aggressively
+		if d.isActionAvailable(holdem.ActionRaise, availableActions) {
+			action.Type = holdem.ActionRaise
+			action.Amount = d.calculateAggressiveRaiseAmount(game, player, handStrength, minRaise, maxRaise)
+		} else if d.isActionAvailable(holdem.ActionCall, availableActions) {
+			action.Type = holdem.ActionCall
+			action.Amount = d.calculateCallAmount(game, player)
+		} else if d.isActionAvailable(holdem.ActionCheck, availableActions) {
+			action.Type = holdem.ActionCheck
 		}
 	}
 
-	// Adjust for position
-	strength = b.adjustForPosition(strength)
-
-	// Adjust for community cards if available
-	if len(b.game.CommunityCards) > 0 {
-		strength = b.adjustForCommunityCards(strength)
+	// Validate the action before returning
+	if err := d.validator.ValidateAction(game, player, action); err != nil {
+		// If action is invalid, fallback to check or fold
+		if d.isActionAvailable(holdem.ActionCheck, availableActions) {
+			action.Type = holdem.ActionCheck
+			action.Amount = 0
+		} else if d.isActionAvailable(holdem.ActionFold, availableActions) {
+			action.Type = holdem.ActionFold
+			action.Amount = 0
+		}
 	}
 
-	return min(strength, 1.0)
+	return action
 }
 
-// convertRankForComparison converts poker ranks to numerical values for comparison
-// Treats Ace as high (14), King as 13, Queen as 12, Jack as 11, etc.
-func (b *BasicBotDecisionMaker) convertRankForComparison(rank poker.Rank) int {
+// Betting amount calculation methods
+func (d *BasicBotDecisionMaker) calculateCallAmount(game *holdem.Game, player holdem.IPlayer) int {
+	if game == nil || player == nil {
+		return 0
+	}
+
+	// Get current phase actions
+	var actions []holdem.Action
+	userActions := game.GetUserActions()
+	switch game.GetCurrentPhase() {
+	case holdem.PhasePreflop:
+		actions = userActions.Preflop
+	case holdem.PhaseFlop:
+		actions = userActions.Flop
+	case holdem.PhaseTurn:
+		actions = userActions.Turn
+	case holdem.PhaseRiver:
+		actions = userActions.River
+	default:
+		return 0
+	}
+
+	// Find highest bet/raise amount in current phase
+	currentBet := 0
+	for _, action := range actions {
+		if action.Type == holdem.ActionRaise || action.Type == holdem.ActionCall {
+			if action.Amount > currentBet {
+				currentBet = action.Amount
+			}
+		}
+	}
+
+	// Calculate call amount (difference between current bet and player's bet)
+	callAmount := currentBet - player.GetBet()
+	if callAmount < 0 {
+		callAmount = 0
+	}
+
+	return callAmount
+}
+
+func (d *BasicBotDecisionMaker) calculateBluffAmount(game *holdem.Game, player holdem.IPlayer, minRaise int) int {
+	bigBlind := game.GetBigBlind()
+	bluffSize := bigBlind + int(float64(bigBlind)*d.Aggressiveness)
+	return maxInt(bluffSize, minRaise)
+}
+
+func (d *BasicBotDecisionMaker) calculateValueBetAmount(game *holdem.Game, player holdem.IPlayer, handStrength float64, minRaise int) int {
+	bigBlind := game.GetBigBlind()
+	betSize := int(float64(bigBlind) * (1 + handStrength + d.Aggressiveness) * 2)
+	maxBet := player.GetChips() / 3 // Don't bet more than 1/3 of stack
+
+	betAmount := minInt(betSize, maxBet)
+	return maxInt(betAmount, minRaise)
+}
+
+func (d *BasicBotDecisionMaker) calculateAggressiveRaiseAmount(game *holdem.Game, player holdem.IPlayer, handStrength float64, minRaise, maxRaise int) int {
+	bigBlind := game.GetBigBlind()
+
+	// Strong hands warrant bigger bets
+	multiplier := 3.0 + (handStrength * 2.0) + (d.Aggressiveness * 2.0)
+	raiseAmount := int(float64(bigBlind) * multiplier)
+
+	// Cap at reasonable percentage of stack
+	maxBet := player.GetChips() / 2
+	raiseAmount = minInt(raiseAmount, maxBet)
+
+	return maxInt(raiseAmount, minRaise)
+}
+
+// Helper methods
+func (d *BasicBotDecisionMaker) shouldBluff(handStrength float64) bool {
+	// Only bluff with marginal hands and based on bluff frequency
+	return handStrength > 0.1 && handStrength < 0.4 && rand.Float64() < d.BluffFrequency
+}
+
+func (d *BasicBotDecisionMaker) isActionAvailable(actionType holdem.ActionType, availableActions []holdem.ActionType) bool {
+	for _, available := range availableActions {
+		if available == actionType {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *BasicBotDecisionMaker) countActivePlayers(game *holdem.Game) int {
+	count := 0
+	for i := 0; i < 10; i++ {
+		if player, err := game.GetPlayerBySit(i); err == nil && player != nil && !player.IsFolded() {
+			count++
+		}
+	}
+	return count
+}
+
+func (d *BasicBotDecisionMaker) rankToValue(rank poker.Rank) int {
 	switch rank {
 	case poker.RankAce:
 		return 14
@@ -155,158 +432,31 @@ func (b *BasicBotDecisionMaker) convertRankForComparison(rank poker.Rank) int {
 	}
 }
 
-// adjustForPosition adjusts hand strength based on position
-func (b *BasicBotDecisionMaker) adjustForPosition(strength float64) float64 {
-	totalPlayers := b.game.GetTotalPlayers()
-	position := b.game.GetPlayerPosition(b.player)
-
-	// Early position (first 1/3 of players) - be more conservative
-	if position < totalPlayers/3 {
-		return strength * 0.9
-	}
-
-	// Late position (last 1/3 of players) - be more aggressive
-	if position >= (totalPlayers*2)/3 {
-		return strength * 1.1
-	}
-
-	// Middle position - no adjustment
-	return strength
-}
-
-// adjustForCommunityCards adjusts hand strength based on community cards
-func (b *BasicBotDecisionMaker) adjustForCommunityCards(strength float64) float64 {
-	// This is a simplified implementation
-	// In a real bot, you'd want to evaluate actual hand rankings
-
-	// For now, just slightly reduce confidence with more community cards
-	// as more information makes the hand more defined
-	switch len(b.game.CommunityCards) {
-	case 3:
-		return strength * 0.95
-	case 4:
-		return strength * 0.9
-	case 5:
-		return strength * 0.85
-	default:
-		return strength
-	}
-}
-
-// chooseAction selects the best action based on hand strength and game state
-func (b *BasicBotDecisionMaker) chooseAction(validActions []ActionType, handStrength float64) Action {
-	// Calculate pot odds
-	potOdds := b.game.CalculatePotOdds(b.player)
-
-	// Decision thresholds
-	foldThreshold := 0.3
-	raiseThreshold := 0.7
-
-	// Adjust thresholds based on pot odds
-	if potOdds > 0 {
-		// Better pot odds mean we can play looser
-		foldThreshold -= potOdds * 0.5
-		raiseThreshold -= potOdds * 0.3
-	}
-
-	// Decision logic
-	if handStrength < foldThreshold {
-		// Weak hand - fold unless we can check
-		if b.canCheck(validActions) {
-			return Action{Type: ActionCheck}
-		}
-		return Action{Type: ActionFold}
-	} else if handStrength > raiseThreshold {
-		// Strong hand - raise or bet
-		if b.canRaise(validActions) {
-			raiseAmount := b.calculateRaiseAmount(handStrength)
-			return Action{Type: ActionRaise, Amount: raiseAmount}
-		} else if b.canCall(validActions) {
-			return Action{Type: ActionCall}
-		} else if b.canCheck(validActions) {
-			return Action{Type: ActionCheck}
-		}
-		return Action{Type: ActionFold}
-	} else {
-		// Medium hand - call or check
-		if b.canCheck(validActions) {
-			return Action{Type: ActionCheck}
-		} else if b.canCall(validActions) {
-			// Sometimes fold medium hands if pot odds are bad
-			if potOdds < 0.3 && b.rng.Float64() < 0.3 {
-				return Action{Type: ActionFold}
-			}
-			return Action{Type: ActionCall}
-		}
-		return Action{Type: ActionFold}
-	}
-}
-
-// calculateRaiseAmount determines how much to raise based on hand strength
-func (b *BasicBotDecisionMaker) calculateRaiseAmount(handStrength float64) int {
-	// Base raise amount
-	baseRaise := b.game.BigBlind * 2
-
-	// Scale based on hand strength
-	multiplier := 1.0 + (handStrength-0.5)*2 // Range: 0 to 3
-
-	raiseAmount := int(float64(baseRaise) * multiplier)
-
-	// Ensure we don't raise more than we can afford
-	callAmount := b.game.CurrentBet - b.player.GetBet()
-	maxRaise := b.player.GetChips() - callAmount
-
-	if raiseAmount > maxRaise {
-		raiseAmount = maxRaise
-	}
-
-	// Minimum raise
-	if raiseAmount < b.game.BigBlind {
-		raiseAmount = b.game.BigBlind
-	}
-
-	return raiseAmount
-}
-
-// Helper methods to check valid actions
-func (b *BasicBotDecisionMaker) canRaise(validActions []ActionType) bool {
-	for _, action := range validActions {
-		if action == ActionRaise {
-			return true
-		}
-	}
-	return false
-}
-
-func (b *BasicBotDecisionMaker) canCall(validActions []ActionType) bool {
-	for _, action := range validActions {
-		if action == ActionCall {
-			return true
-		}
-	}
-	return false
-}
-
-func (b *BasicBotDecisionMaker) canCheck(validActions []ActionType) bool {
-	for _, action := range validActions {
-		if action == ActionCheck {
-			return true
-		}
-	}
-	return false
-}
-
 // Utility functions
+func minFloat64(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func abs(x int) int {
 	if x < 0 {
 		return -x
 	}
 	return x
-}
-
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }

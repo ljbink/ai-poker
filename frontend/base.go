@@ -45,11 +45,6 @@ func NewModel() *Model {
 	return model
 }
 
-// GetPlayerName returns the player name from the centralized data store
-func (m *Model) GetPlayerName() string {
-	return GetData().GetPlayerName()
-}
-
 // Init initializes the model (required by Bubble Tea)
 func (m *Model) Init() tea.Cmd {
 	return nil

@@ -1,99 +1,129 @@
 package holdem_ai
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/ljbink/ai-poker/engine/holdem"
 )
 
-// HumanUserDecisionMaker handles decision making for human players
-// It receives input from the frontend through channels
-type HumanUserDecisionMaker struct {
-	player         holdem.IPlayer
-	game           *holdem.Game
-	actionChan     chan Action
-	validator      *ActionValidator
-	timeout        time.Duration
-	onActionNeeded ActionNeededCallback
+type HumanDecisionMaker struct {
+	validator     holdem.IActionValidator // Action validator for legal moves
+	actionChannel chan holdem.Action      // Channel to receive actions from external frontend
 }
 
-// ActionNeededCallback is called when the human player needs to make a decision
-// The callback receives the game state and current player
-type ActionNeededCallback func(game *holdem.Game, player holdem.IPlayer, validActions []ActionType)
-
-// NewHumanUserDecisionMaker creates a new human decision maker bound to a specific player and game
-func NewHumanUserDecisionMaker(player holdem.IPlayer, game *holdem.Game) *HumanUserDecisionMaker {
-	return &HumanUserDecisionMaker{
-		player:     player,
-		game:       game,
-		actionChan: make(chan Action, 1), // Buffered channel for single action
-		validator:  NewActionValidator(),
-		timeout:    30 * time.Second, // 30 second timeout for user decisions
+func NewHumanDecisionMaker() *HumanDecisionMaker {
+	return &HumanDecisionMaker{
+		validator:     holdem.NewActionValidator(),
+		actionChannel: make(chan holdem.Action, 1),
 	}
 }
 
-// MakeDecision returns a channel that will receive the chosen action
-func (h *HumanUserDecisionMaker) MakeDecision() <-chan Action {
-	resultChan := make(chan Action, 1)
+// MakeDecision implements the IDecisionMaker interface
+// This will wait for an action to be provided via SetAction method
+func (d *HumanDecisionMaker) MakeDecision(game *holdem.Game, player holdem.IPlayer) <-chan holdem.Action {
+	ch := make(chan holdem.Action, 1)
 
 	go func() {
-		// Get valid actions for this player
-		validActions := h.validator.GetValidActions(h.game, h.player)
+		defer close(ch)
 
-		// Notify frontend that action is needed
-		if h.onActionNeeded != nil {
-			go h.onActionNeeded(h.game, h.player, validActions)
-		}
-
-		// Wait for user input with timeout
+		// Wait for external frontend to provide an action
 		select {
-		case action := <-h.actionChan:
+		case action := <-d.actionChannel:
 			// Validate the action before returning
-			if h.validator.IsValidAction(action, h.game, h.player) {
-				resultChan <- action
+			if err := d.validator.ValidateAction(game, player, action); err != nil {
+				// If action is invalid, return a fold action as fallback
+				fallbackAction := holdem.Action{
+					PlayerID: player.GetID(),
+					Type:     holdem.ActionFold,
+					Amount:   0,
+				}
+				ch <- fallbackAction
 			} else {
-				// If action is invalid, auto-fold as fallback
-				resultChan <- Action{Type: ActionFold}
+				ch <- action
 			}
-		case <-time.After(h.timeout):
-			// Timeout - auto-fold
-			resultChan <- Action{Type: ActionFold}
+		case <-time.After(60 * time.Second): // 60 second timeout
+			// Timeout - return fold action
+			timeoutAction := holdem.Action{
+				PlayerID: player.GetID(),
+				Type:     holdem.ActionFold,
+				Amount:   0,
+			}
+			ch <- timeoutAction
 		}
-		close(resultChan)
 	}()
 
-	return resultChan
+	return ch
 }
 
-// SendAction allows the frontend to send an action (thread-safe)
-func (h *HumanUserDecisionMaker) SendAction(action Action) error {
-	// Validate action
-	if !h.validator.IsValidAction(action, h.game, h.player) {
-		validActions := h.validator.GetValidActions(h.game, h.player)
-		return fmt.Errorf("invalid action %s, valid actions: %v", action.Type.String(), validActions)
-	}
-
-	// Send action (non-blocking)
+// SetAction allows external frontend to provide the human player's action
+func (d *HumanDecisionMaker) SetAction(action holdem.Action) {
 	select {
-	case h.actionChan <- action:
-		return nil
+	case d.actionChannel <- action:
+		// Action sent successfully
 	default:
-		return fmt.Errorf("action channel is full, previous action not processed")
+		// Channel is full or not ready, ignore
 	}
 }
 
-// GetValidActions returns the currently valid actions for the player
-func (h *HumanUserDecisionMaker) GetValidActions() []ActionType {
-	return h.validator.GetValidActions(h.game, h.player)
+// GetAvailableActions returns the valid actions for the current game state
+// This can be used by external frontend to show available options
+func (d *HumanDecisionMaker) GetAvailableActions(game *holdem.Game, player holdem.IPlayer) []holdem.ActionType {
+	return d.validator.GetAvailableActions(game, player)
 }
 
-// SetTimeout sets the decision timeout duration
-func (h *HumanUserDecisionMaker) SetTimeout(timeout time.Duration) {
-	h.timeout = timeout
+// GetMinRaiseAmount returns the minimum raise amount
+func (d *HumanDecisionMaker) GetMinRaiseAmount(game *holdem.Game, player holdem.IPlayer) int {
+	return d.validator.GetMinRaiseAmount(game, player)
 }
 
-// SetActionNeededCallback sets the callback for when action is needed
-func (h *HumanUserDecisionMaker) SetActionNeededCallback(callback ActionNeededCallback) {
-	h.onActionNeeded = callback
+// GetMaxRaiseAmount returns the maximum raise amount (all-in)
+func (d *HumanDecisionMaker) GetMaxRaiseAmount(game *holdem.Game, player holdem.IPlayer) int {
+	return d.validator.GetMaxRaiseAmount(game, player)
+}
+
+// ValidateAction validates if an action is legal - useful for frontend validation
+func (d *HumanDecisionMaker) ValidateAction(game *holdem.Game, player holdem.IPlayer, action holdem.Action) error {
+	if err := d.validator.ValidateAction(game, player, action); err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetCallAmount calculates the amount needed to call
+func (d *HumanDecisionMaker) GetCallAmount(game *holdem.Game, player holdem.IPlayer) int {
+	actions := d.getCurrentPhaseActions(game)
+	currentBet := 0
+
+	for _, action := range actions {
+		if action.Type == holdem.ActionRaise || action.Type == holdem.ActionCall {
+			if action.Amount > currentBet {
+				currentBet = action.Amount
+			}
+		}
+	}
+
+	callAmount := currentBet - player.GetBet()
+	if callAmount < 0 {
+		callAmount = 0
+	}
+
+	return callAmount
+}
+
+// Helper function to get current phase actions
+func (d *HumanDecisionMaker) getCurrentPhaseActions(game *holdem.Game) []holdem.Action {
+	userActions := game.GetUserActions()
+
+	switch game.GetCurrentPhase() {
+	case holdem.PhasePreflop:
+		return userActions.Preflop
+	case holdem.PhaseFlop:
+		return userActions.Flop
+	case holdem.PhaseTurn:
+		return userActions.Turn
+	case holdem.PhaseRiver:
+		return userActions.River
+	default:
+		return []holdem.Action{}
+	}
 }

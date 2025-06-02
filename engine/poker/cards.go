@@ -22,14 +22,22 @@ func (c *Cards) Remove(cards ...*Card) int {
 	count := 0
 	temp := Cards{}
 	for _, _c := range *c {
+		found := false
 		for _, card := range cards {
-			if _c.String() == card.String() {
+			// Handle nil cards - they can only match other nil cards
+			if _c == nil && card == nil {
 				count++
-				goto NextLoop
+				found = true
+				break
+			} else if _c != nil && card != nil && _c.String() == card.String() {
+				count++
+				found = true
+				break
 			}
 		}
-		temp = append(temp, _c)
-	NextLoop:
+		if !found {
+			temp = append(temp, _c)
+		}
 	}
 	*c = temp
 	return count
@@ -49,7 +57,11 @@ func (c *Cards) Shuffle() {
 func (c Cards) String() string {
 	res := ""
 	for i, _c := range c {
-		res += _c.String()
+		if _c != nil {
+			res += _c.String()
+		} else {
+			res += "[nil]"
+		}
 		if i < c.Length()-1 {
 			res += " "
 		}

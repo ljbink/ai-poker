@@ -200,7 +200,7 @@ func (v *IndexView) Render(width, height int) string {
 
 	// Update list dimensions to use remaining space
 	v.list.SetWidth(width - 8)
-	v.list.SetHeight(availableHeight - 2) // Small buffer for list margins
+	v.list.SetHeight(10) // Small buffer for list margins
 
 	// Render list content for center area
 	listView := v.list.View()
