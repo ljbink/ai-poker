@@ -156,7 +156,19 @@ func TestCardsRemove(t *testing.T) {
 	deck.Append(poker.NewCard(poker.SuitHeart, poker.RankAce))
 	removed = deck.Remove(nil)
 	if removed != 0 {
-		t.Errorf("Expected to remove 0 nil cards, removed %d", removed)
+		t.Errorf("Expected to remove 0 nil cards from deck with only non-nil, removed %d", removed)
+	}
+
+	// Test removing nil when deck contains nil entries
+	deck = poker.Cards{}
+	deck.Append(nil, poker.NewCard(poker.SuitHeart, poker.RankAce), nil)
+	removed = deck.Remove(nil)
+	if removed != 2 {
+		t.Errorf("Expected to remove 2 nil cards, removed %d", removed)
+	}
+	// Ensure non-nil card remains
+	if deck.Length() != 1 {
+		t.Errorf("Expected deck length 1 after removing two nils, got %d", deck.Length())
 	}
 
 	// Test removing duplicate cards

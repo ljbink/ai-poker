@@ -24,7 +24,8 @@ type IPlayer interface {
 }
 
 type Player struct {
-	poker.BasePlayer
+	ID       int
+	Name     string
 	cards    []*poker.Card
 	chips    int
 	bet      int
@@ -34,9 +35,10 @@ type Player struct {
 
 func NewPlayer(id int, name string, startingChips int) IPlayer {
 	return &Player{
-		BasePlayer: poker.BasePlayer{ID: id, Name: name},
-		cards:      make([]*poker.Card, 0),
-		chips:      startingChips,
+		ID:    id,
+		Name:  name,
+		cards: make([]*poker.Card, 0),
+		chips: startingChips,
 	}
 }
 

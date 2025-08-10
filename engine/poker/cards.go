@@ -44,9 +44,12 @@ func (c *Cards) Remove(cards ...*Card) int {
 }
 
 func (c *Cards) Shuffle() {
-	rand.New(rand.NewSource(time.Now().UnixNano()))
+	// Use a local RNG seeded with time to avoid affecting the global rand state
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	// Simple shuffle with random swaps across the whole range
 	for i := 0; i < c.Length(); i++ {
-		j := rand.Intn(c.Length())
+		j := rng.Intn(c.Length())
 		if i == j {
 			continue
 		}

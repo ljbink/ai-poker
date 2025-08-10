@@ -461,3 +461,124 @@ func TestEvaluatePartialHands(t *testing.T) {
 		t.Errorf("Expected OnePair from 3 cards with pair, got %d", result.Rank)
 	}
 }
+
+func TestEvaluatePartialHandsMoreBranches(t *testing.T) {
+	evaluator := NewHandEvaluator()
+
+	// 4 cards with no pairs/trips/quads should yield HighCard via partial evaluator
+	cards := poker.Cards{
+		{Rank: poker.RankAce, Suit: poker.SuitSpade},
+		{Rank: poker.RankKing, Suit: poker.SuitHeart},
+		{Rank: poker.RankNine, Suit: poker.SuitClub},
+		{Rank: poker.RankFour, Suit: poker.SuitDiamond},
+	}
+	res := evaluator.evaluatePartialHand(cards)
+	if res.Rank != HighCard {
+		t.Errorf("Expected HighCard for 4 mixed cards, got %v", res.Rank)
+	}
+
+	// 3 cards making trips should be detected in partial evaluator
+	trips := poker.Cards{
+		{Rank: poker.RankTen, Suit: poker.SuitSpade},
+		{Rank: poker.RankTen, Suit: poker.SuitHeart},
+		{Rank: poker.RankTen, Suit: poker.SuitClub},
+	}
+	res = evaluator.evaluatePartialHand(trips)
+	if res.Rank != ThreeOfAKind {
+		t.Errorf("Expected ThreeOfAKind for three tens, got %v", res.Rank)
+	}
+
+	// 4 cards making quads should be detected in partial evaluator
+	quads := poker.Cards{
+		{Rank: poker.RankFive, Suit: poker.SuitSpade},
+		{Rank: poker.RankFive, Suit: poker.SuitHeart},
+		{Rank: poker.RankFive, Suit: poker.SuitDiamond},
+		{Rank: poker.RankFive, Suit: poker.SuitClub},
+	}
+	res = evaluator.evaluatePartialHand(quads)
+	if res.Rank != FourOfAKind {
+		t.Errorf("Expected FourOfAKind for four fives, got %v", res.Rank)
+	}
+}
+
+func TestRankValueAndValueToRankMappings(t *testing.T) {
+	evaluator := NewHandEvaluator()
+
+	// Check rankValue mapping for all standard ranks
+	rankToVal := map[poker.Rank]int{
+		poker.RankTwo:   2,
+		poker.RankThree: 3,
+		poker.RankFour:  4,
+		poker.RankFive:  5,
+		poker.RankSix:   6,
+		poker.RankSeven: 7,
+		poker.RankEight: 8,
+		poker.RankNine:  9,
+		poker.RankTen:   10,
+		poker.RankJack:  11,
+		poker.RankQueen: 12,
+		poker.RankKing:  13,
+		poker.RankAce:   14,
+	}
+	for r, v := range rankToVal {
+		if got := evaluator.rankValue(r); got != v {
+			t.Errorf("rankValue(%v) = %d, want %d", r, got, v)
+		}
+	}
+
+	// Check valueToRank mapping including out-of-range
+	valToRank := map[int]poker.Rank{
+		2:  poker.RankTwo,
+		3:  poker.RankThree,
+		4:  poker.RankFour,
+		5:  poker.RankFive,
+		6:  poker.RankSix,
+		7:  poker.RankSeven,
+		8:  poker.RankEight,
+		9:  poker.RankNine,
+		10: poker.RankTen,
+		11: poker.RankJack,
+		12: poker.RankQueen,
+		13: poker.RankKing,
+		14: poker.RankAce,
+	}
+	for v, r := range valToRank {
+		if got := evaluator.valueToRank(v); got != r {
+			t.Errorf("valueToRank(%d) = %v, want %v", v, got, r)
+		}
+	}
+	// Out of range values
+	if got := evaluator.valueToRank(1); got != poker.RankNone {
+		t.Errorf("valueToRank(1) = %v, want RankNone", got)
+	}
+	if got := evaluator.valueToRank(15); got != poker.RankNone {
+		t.Errorf("valueToRank(15) = %v, want RankNone", got)
+	}
+}
+
+func TestIsFlushNegativeCases(t *testing.T) {
+	evaluator := NewHandEvaluator()
+
+	// Fewer than 5 cards should not be a flush
+	notEnough := poker.Cards{
+		{Rank: poker.RankAce, Suit: poker.SuitSpade},
+		{Rank: poker.RankKing, Suit: poker.SuitSpade},
+		{Rank: poker.RankQueen, Suit: poker.SuitSpade},
+		{Rank: poker.RankJack, Suit: poker.SuitSpade},
+	}
+	if evaluator.isFlush(notEnough) {
+		t.Error("isFlush should be false for <5 cards")
+	}
+
+	// Five cards mixed suits should not be a flush
+	mixed := poker.Cards{
+		{Rank: poker.RankAce, Suit: poker.SuitSpade},
+		{Rank: poker.RankKing, Suit: poker.SuitHeart},
+		{Rank: poker.RankQueen, Suit: poker.SuitClub},
+		{Rank: poker.RankJack, Suit: poker.SuitDiamond},
+		{Rank: poker.RankTen, Suit: poker.SuitSpade},
+	}
+	if evaluator.isFlush(mixed) {
+		t.Error("isFlush should be false for mixed suits")
+	}
+}

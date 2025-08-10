@@ -508,6 +508,15 @@ func TestDealFlop(t *testing.T) {
 	}
 }
 
+func TestDealFlopInsufficientDeck(t *testing.T) {
+	game := NewGame(5, 10)
+	// Exhaust the deck so fewer than 4 cards remain
+	game.deck = game.deck[:3]
+	if err := game.DealFlop(); err == nil {
+		t.Error("Expected error when not enough cards in deck for flop")
+	}
+}
+
 func TestDealTurn(t *testing.T) {
 	game := NewGame(5, 10)
 
@@ -537,6 +546,15 @@ func TestDealTurn(t *testing.T) {
 	// Check deck has 46 cards remaining (52 - 2 burns - 4 community)
 	if len(game.deck) != 46 {
 		t.Errorf("Expected 46 cards in deck, got %d", len(game.deck))
+	}
+}
+
+func TestDealTurnInsufficientDeck(t *testing.T) {
+	game := NewGame(5, 10)
+	// Leave fewer than 2 cards
+	game.deck = game.deck[:1]
+	if err := game.DealTurn(); err == nil {
+		t.Error("Expected error when not enough cards in deck for turn")
 	}
 }
 
@@ -573,6 +591,15 @@ func TestDealRiver(t *testing.T) {
 	// Check deck has 44 cards remaining (52 - 3 burns - 5 community)
 	if len(game.deck) != 44 {
 		t.Errorf("Expected 44 cards in deck, got %d", len(game.deck))
+	}
+}
+
+func TestDealRiverInsufficientDeck(t *testing.T) {
+	game := NewGame(5, 10)
+	// Leave fewer than 2 cards
+	game.deck = game.deck[:1]
+	if err := game.DealRiver(); err == nil {
+		t.Error("Expected error when not enough cards in deck for river")
 	}
 }
 

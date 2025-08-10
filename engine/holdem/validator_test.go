@@ -110,6 +110,24 @@ func TestValidatePlayerMismatch(t *testing.T) {
 	}
 }
 
+func TestOutOfTurnValidation(t *testing.T) {
+	validator := NewActionValidator()
+	game := NewGame(10, 20)
+	// Seat two players; current player will be the first non-folded (player1)
+	player1 := NewPlayer(1, "P1", 1000)
+	player2 := NewPlayer(2, "P2", 1000)
+	game.PlayerSit(player1, 0)
+	game.PlayerSit(player2, 1)
+
+	// Player2 tries to act out of turn
+	action := Action{PlayerID: 2, Type: ActionCheck, Amount: 0}
+	if err := validator.ValidateAction(game, player2, action); err == nil {
+		t.Error("Expected out-of-turn error for player2")
+	} else if err.Code != ErrorOutOfTurn {
+		t.Errorf("Expected ErrorOutOfTurn, got %v", err.Code)
+	}
+}
+
 func TestValidateFold(t *testing.T) {
 	validator := NewActionValidator()
 	game := NewGame(10, 20)
@@ -181,13 +199,36 @@ func TestValidateCall(t *testing.T) {
 		t.Errorf("Unexpected error for valid call: %v", err)
 	}
 
+	// Test calling when there's no bet to call
+	game = NewGame(10, 20)
+	player1 = NewPlayer(1, "Player 1", 1000)
+	game.PlayerSit(player1, 0)
+	action = Action{PlayerID: 1, Type: ActionCall, Amount: 0}
+	err = validator.ValidateAction(game, player1, action)
+	if err == nil {
+		t.Error("Expected error for call when there's no bet to call")
+	}
+
+	// Test call with wrong amount
+	game = NewGame(10, 20)
+	player1 = NewPlayer(1, "Player 1", 1000)
+	player2 = NewPlayer(2, "Player 2", 1000)
+	game.PlayerSit(player1, 0)
+	game.PlayerSit(player2, 1)
+	game.TakeAction(Action{PlayerID: 2, Type: ActionRaise, Amount: 60})
+	action = Action{PlayerID: 1, Type: ActionCall, Amount: 50}
+	err = validator.ValidateAction(game, player1, action)
+	if err == nil {
+		t.Error("Expected error for call with incorrect amount")
+	}
+
 	// Test call with insufficient chips - make this player the current player
 	poorPlayer := NewPlayer(3, "Poor Player", 25)
 	game.PlayerSit(poorPlayer, 2)
 	// Fold both player1 and player2 to make poorPlayer the current player
 	player1.Fold()
 	player2.Fold()
-	action = Action{PlayerID: 3, Type: ActionCall, Amount: 50}
+	action = Action{PlayerID: 3, Type: ActionCall, Amount: 60}
 	err = validator.ValidateAction(game, poorPlayer, action)
 	if err == nil {
 		t.Error("Expected error for call with insufficient chips")
@@ -349,6 +390,27 @@ func TestGetMinRaiseAmount(t *testing.T) {
 	minRaise = validator.GetMinRaiseAmount(game, nil)
 	if minRaise != 0 {
 		t.Errorf("Expected 0 for nil player, got %d", minRaise)
+	}
+
+	// Test with existing bet and previous raise (min raise = currentBet - prevBet)
+	game = NewGame(10, 20)
+	playerA := NewPlayer(1, "A", 1000)
+	playerB := NewPlayer(2, "B", 1000)
+	game.PlayerSit(playerA, 0)
+	game.PlayerSit(playerB, 1)
+	// Player A raises to 40, then Player B raises to 80; min next raise = 80-40 = 40
+	game.TakeAction(Action{PlayerID: 1, Type: ActionRaise, Amount: 40})
+	game.TakeAction(Action{PlayerID: 2, Type: ActionRaise, Amount: 80})
+	got := validator.GetMinRaiseAmount(game, playerA)
+	// Compute expected as callAmount + min increment (40)
+	currentBet := validator.getCurrentBet(game)
+	callAmount := currentBet - playerA.GetBet()
+	if callAmount < 0 {
+		callAmount = 0
+	}
+	expected := callAmount + 40
+	if got != expected {
+		t.Errorf("Expected min raise %d (callAmount %d + 40), got %d", expected, callAmount, got)
 	}
 }
 
@@ -536,6 +598,15 @@ func TestValidatorAllPhasesActions(t *testing.T) {
 	actions := validator.getCurrentPhaseActions(game)
 	if len(actions) != 0 {
 		t.Errorf("Expected 0 actions for invalid phase, got %d", len(actions))
+	}
+
+	// Test validateGameState prevents actions during showdown
+	game.SetCurrentPhase(PhaseShowdown)
+	playerShow := NewPlayer(9, "Show", 1000)
+	game.PlayerSit(playerShow, 9)
+	action := Action{PlayerID: 9, Type: ActionCheck, Amount: 0}
+	if err := validator.ValidateAction(game, playerShow, action); err == nil {
+		t.Error("Expected error: no actions allowed during showdown phase")
 	}
 }
 
